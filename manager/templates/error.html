@@ -1,2 +1,5 @@
 {% extends "base.html" %}
-{% block content %}<h1>{{ title }}</h1><p>{{ message }}</p><p><a href="{{ url_for('home') }}">Back to apps</a></p>{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ title }}</h1><p class="muted">{{ message }}</p></div></div>
+<a class="btn" href="{{ url_for('home') }}">Back to apps</a>
+{% endblock %}

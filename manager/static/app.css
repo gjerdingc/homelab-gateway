@@ -1,0 +1,38 @@
+/* Traefik Manager additions on top of theme.css. No brand colours here. */
+body { overflow-wrap: anywhere; }
+.container { max-width: 1040px; }
+.page-head h1 { overflow-wrap: anywhere; }
+.page-head .muted { margin-top: .2rem; }
+.card > h2 { display: flex; align-items: center; }
+.card > .actions:last-child, .card > .help:last-child { margin-bottom: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; align-items: center; }
+.actions form { display: inline-flex; margin: 0; }
+.field { margin-bottom: 1rem; }
+.has-error input, .has-error textarea { border-color: var(--err-text); }
+.checks { margin: .25rem 0 1rem; }
+.checks label { display: flex; gap: .55rem; align-items: flex-start; font-weight: 400; margin: 0 0 .55rem; }
+.checks input { margin-top: .3rem; }
+.kv { grid-template-columns: 9rem 1fr; }
+.kv dd .badge { margin-right: .4rem; }
+.kv + .actions { margin-top: 1.1rem; }
+pre.code { white-space: pre; margin: .5rem 0 0; }
+pre.code.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.danger-zone { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.danger-zone summary { cursor: pointer; color: var(--err-text); font-weight: 600; }
+.danger-zone form { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+.danger-zone input { max-width: 16rem; }
+td.empty { text-align: center; color: var(--muted); white-space: normal; }
+.table-card td { white-space: normal; }
+.table-card td.nowrap { white-space: nowrap; }
+@media (max-width: 720px) {
+  .topbar-inner { flex-wrap: wrap; row-gap: .4rem; }
+  nav { flex-wrap: wrap; }
+  .table-card { overflow-x: visible; }
+  table.stack thead { display: none; }
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+  table.stack tr { border-bottom: 1px solid var(--border); padding: .4rem 0; }
+  table.stack tbody tr:last-child { border-bottom: none; }
+  table.stack td { border: 0; padding: .2rem .9rem; white-space: normal; }
+  table.stack td::before { content: attr(data-label); display: block; font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .kv { grid-template-columns: 1fr; }
+}

@@ -1,19 +1,19 @@
-{% macro dot(status) %}<span class="dot {{ status }}" title="{{ status }}"></span>{% endmacro %}
+{% macro status_badge(status) %}{% set cls = {'ok': 'badge-ok', 'warn': 'badge-warn', 'fail': 'badge-err'} %}<span class="badge {{ cls.get(status, 'badge-muted') }}">{{ status }}</span>{% endmacro %}
 
-{% macro field(name, label, value, errors, hint="", type="text", readonly=false, placeholder="") %}
+{% macro field(name, label, value, errors, hint="", readonly=false, placeholder="", mono=false) %}
 <div class="field{% if errors.get(name) %} has-error{% endif %}">
   <label for="{{ name }}">{{ label }}</label>
-  <input id="{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}"
+  <input id="{{ name }}" name="{{ name }}" type="text" value="{{ value }}" placeholder="{{ placeholder }}"{% if mono %} class="mono"{% endif %}
          {% if readonly %}readonly{% endif %} autocomplete="off" autocapitalize="none" spellcheck="false">
-  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  {% if hint %}<p class="help">{{ hint }}</p>{% endif %}
   {% if errors.get(name) %}<p class="error">{{ errors[name] }}</p>{% endif %}
 </div>
 {% endmacro %}
 
 {% macro check(name, c) %}
-<tr><th>{{ name }}</th><td>{{ dot(c.status) }} {{ c.detail }}</td></tr>
+<dt>{{ name }}</dt><dd>{{ status_badge(c.status) }}{{ c.detail }}</dd>
 {% endmacro %}
 
 {% macro expiry(cert) %}
-{% if cert %}<span class="pill {{ cert.not_after | expiry_class }}">{{ cert.not_after[:10] }} ({{ cert.not_after | days_left }}d)</span>{% else %}<span class="pill bad">no cert</span>{% endif %}
+{% if cert %}<span class="badge badge-{{ cert.not_after | expiry_class }} mono">{{ cert.not_after[:10] }} · {{ cert.not_after | days_left }}d</span>{% else %}<span class="badge badge-err">no cert</span>{% endif %}
 {% endmacro %}

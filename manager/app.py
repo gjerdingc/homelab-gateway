@@ -54,7 +54,7 @@ def expiry_class(value):
     d = days_left(value)
     if d is None:
         return "muted"
-    return "bad" if d <= 7 else "warn" if d <= 30 else "ok"
+    return "err" if d <= 7 else "warn" if d <= 30 else "ok"
 
 
 def create_app(env=None, start_background=True):

@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="784" viewBox="0 0 1280 784" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="accent" x1="0" x2="1"><stop offset="0" stop-color="#ae20c3"/><stop offset=".35" stop-color="#db31cf"/><stop offset=".65" stop-color="#ed38ad"/><stop offset="1" stop-color="#de5286"/></linearGradient>
+    <marker id="a-traffic" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6a0b8c"/></marker>
+    <marker id="a-mgmt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5f6b7c"/></marker>
+    <style>
+      .box { fill: #fff; stroke: #dde1e7; stroke-width: 1.2; }
+      .hero { fill: #fff; stroke: #6a0b8c; stroke-width: 1.6; }
+      .title { font-size: 15px; font-weight: 650; fill: #1c2330; }
+      .sub { font-size: 12px; fill: #5f6b7c; }
+      .text { font-size: 12.5px; fill: #5f6b7c; }
+      .key { font-size: 12.5px; fill: #1c2330; font-weight: 600; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #1c2330; }
+      .mmuted { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; fill: #5f6b7c; }
+      .zone { fill: none; stroke: #b8bfca; stroke-width: 1.2; stroke-dasharray: 6 5; }
+      .zonetitle { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .06em; fill: #5f6b7c; font-weight: 600; }
+      .traffic { stroke: #6a0b8c; stroke-width: 2.2; fill: none; marker-end: url(#a-traffic); }
+      .mgmt { stroke: #5f6b7c; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#a-mgmt); }
+      .step { font-size: 12px; font-weight: 700; fill: #fff; }
+      .stepbg-t { fill: #6a0b8c; }
+      .stepbg-m { fill: #5f6b7c; }
+      .lbl { font-size: 12px; fill: #1c2330; font-weight: 550; }
+      .mlbl { font-size: 12px; fill: #5f6b7c; font-style: italic; }
+      .lblbg { fill: #f5f6f8; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="784" fill="#f5f6f8"/>
+  <rect width="1280" height="4" fill="url(#accent)"/>
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#1c2330">Internal App Gateway · technical design</text>
+  <text x="40" y="72" font-size="14" fill="#5f6b7c">Data plane: how requests reach apps. Control plane: how routes and certificates are created, verified and renewed.</text>
+
+  <!-- Left column -->
+  <rect x="40" y="150" width="200" height="104" rx="10" class="box"/>
+  <text x="56" y="176" class="title">Client</text>
+  <text x="56" y="196" class="text">Browser on an allowed</text>
+  <text x="56" y="213" class="text">network</text>
+  <text x="56" y="238" class="text">Trusts the internal root CA</text>
+
+  <rect x="40" y="310" width="200" height="88" rx="10" class="box"/>
+  <text x="56" y="336" class="title">Internal DNS</text>
+  <text x="56" y="356" class="mono">app.example.internal</text>
+  <text x="56" y="374" class="text">A record → gateway host</text>
+  <path d="M140 256 L140 306" class="mgmt"/>
+
+  <rect x="40" y="436" width="200" height="84" rx="10" class="box"/>
+  <text x="56" y="462" class="title">Admin</text>
+  <text x="56" y="482" class="text">Adds or edits an app in</text>
+  <text x="56" y="499" class="text">the manager GUI</text>
+
+  <rect x="40" y="544" width="200" height="84" rx="10" class="box"/>
+  <text x="56" y="570" class="title">Git → Compose stack</text>
+  <text x="56" y="590" class="text">Proxy + manager deployed</text>
+  <text x="56" y="607" class="text">as one stack</text>
+  <path d="M240 586 L276 586" class="mgmt"/>
+
+  <!-- Host -->
+  <rect x="280" y="104" width="960" height="530" rx="14" class="zone"/>
+  <text x="298" y="126" class="zonetitle">CONTAINER HOST</text>
+
+  <!-- Traefik -->
+  <rect x="310" y="150" width="290" height="246" rx="12" class="hero"/>
+  <text x="330" y="178" class="title">Edge proxy · Traefik v3</text>
+  <text x="330" y="204" class="mono">:80</text><text x="380" y="204" class="text">301 redirect to HTTPS</text>
+  <text x="330" y="224" class="mono">:443</text><text x="380" y="224" class="text">TLS termination, SNI cert</text>
+  <text x="380" y="241" class="text">selection, TLS 1.2+</text>
+  <text x="330" y="264" class="key">Routing</text><text x="400" y="264" class="text">Host() rule per app</text>
+  <text x="330" y="284" class="key">Middleware</text><text x="412" y="284" class="text">IP allow-list,</text>
+  <text x="412" y="301" class="text">HSTS + security headers</text>
+  <text x="330" y="324" class="key">Provider</text><text x="398" y="324" class="text">file, watched, hot reload</text>
+  <text x="330" y="347" class="key">API</text><text x="364" y="347" class="text">status + dashboard,</text>
+  <text x="364" y="364" class="text">internal port only</text>
+  <text x="330" y="384" class="mmuted">no Docker socket mounted</text>
+
+  <!-- Proxy network -->
+  <rect x="650" y="140" width="560" height="276" rx="12" class="zone"/>
+  <text x="668" y="162" class="zonetitle">PRIVATE CONTAINER NETWORK</text>
+
+  <rect x="670" y="176" width="166" height="56" rx="8" class="box"/>
+  <text x="686" y="199" class="mono" font-weight="600">app-1</text><text x="686" y="219" class="mmuted">HTTP :8080</text>
+  <rect x="847" y="176" width="166" height="56" rx="8" class="box"/>
+  <text x="863" y="199" class="mono" font-weight="600">app-2</text><text x="863" y="219" class="mmuted">HTTP :8080</text>
+  <rect x="1024" y="176" width="166" height="56" rx="8" class="box" stroke-dasharray="4 4"/>
+  <text x="1040" y="199" class="mono" font-weight="600" style="fill:#5f6b7c">app-n</text><text x="1040" y="219" class="mmuted">no host ports</text>
+
+  <rect x="670" y="252" width="520" height="148" rx="10" class="box"/>
+  <rect x="670" y="264" width="3" height="20" rx="1.5" fill="url(#accent)"/>
+  <text x="690" y="280" class="title">Gateway Manager</text>
+  <text x="826" y="280" class="sub">Python · Flask · gunicorn</text>
+  <text x="690" y="306" class="key">Web GUI</text><text x="752" y="306" class="text">via the gateway</text>
+  <text x="690" y="324" class="text">+ fallback host port</text>
+  <text x="690" y="348" class="key">Registry</text><text x="756" y="348" class="text">apps.yml (source</text>
+  <text x="690" y="366" class="text">of truth), action log</text>
+  <text x="690" y="388" class="key">Issuer</text><text x="740" y="388" class="text">X.509 leaf, SHA-256</text>
+  <text x="940" y="306" class="key">Renderer</text><text x="1006" y="306" class="text">per-app YAML,</text>
+  <text x="940" y="324" class="text">atomic writes, rollback</text>
+  <text x="940" y="348" class="key">Verifier</text><text x="1002" y="348" class="text">API + revision</text>
+  <text x="940" y="366" class="text">marker per file</text>
+  <text x="940" y="388" class="key">Renewer</text><text x="1002" y="388" class="text">before expiry</text>
+
+  <!-- Data plane arrows -->
+  <path d="M240 200 L306 200" class="traffic"/>
+  <circle cx="262" cy="186" r="9" class="stepbg-t"/><text x="258.5" y="190" class="step">1</text>
+  <path d="M600 204 L666 204" class="traffic"/>
+  <path d="M600 300 L666 300" class="traffic"/>
+  <circle cx="626" cy="190" r="9" class="stepbg-t"/><text x="622.5" y="194" class="step">2</text>
+
+  <!-- Shared volumes -->
+  <rect x="310" y="458" width="330" height="150" rx="12" class="box"/>
+  <text x="330" y="486" class="title">Shared volumes</text>
+  <text x="330" y="510" class="mono">dynamic/</text><text x="410" y="510" class="text">_core.yml, app-&lt;name&gt;.yml</text>
+  <text x="330" y="530" class="mono">certs/</text><text x="410" y="530" class="text">&lt;app&gt;/&lt;serial&gt;.crt + .key</text>
+  <text x="330" y="550" class="mono">manual-*</text><text x="410" y="550" class="text">hand-written, never touched</text>
+  <text x="330" y="578" class="text">Manager read-write, proxy read-only.</text>
+  <text x="330" y="595" class="text">New cert = new file name = forced reload.</text>
+
+  <!-- Internal PKI -->
+  <rect x="930" y="458" width="260" height="150" rx="12" class="box"/>
+  <text x="950" y="486" class="title">Internal PKI</text>
+  <text x="950" y="510" class="key">Intermediate CA</text>
+  <text x="950" y="528" class="text">mounted read-only, encrypted key</text>
+  <text x="950" y="552" class="key">Root CA</text>
+  <text x="950" y="570" class="text">offline, only its certificate</text>
+  <text x="950" y="587" class="text">is distributed to clients</text>
+
+  <!-- Control plane arrows -->
+  <path d="M240 476 Q 292 456 330 400" class="mgmt"/>
+  <circle cx="262" cy="446" r="9" class="stepbg-m"/><text x="258.5" y="450" class="step">A</text>
+  <path d="M1060 456 L1060 404" class="mgmt"/>
+  <circle cx="1078" cy="430" r="9" class="stepbg-m"/><text x="1074.5" y="434" class="step">B</text>
+  <path d="M720 402 L644 470" class="mgmt"/>
+  <circle cx="708" cy="446" r="9" class="stepbg-m"/><text x="704.5" y="450" class="step">C</text>
+  <path d="M470 454 L470 400" class="mgmt"/>
+  <circle cx="488" cy="428" r="9" class="stepbg-m"/><text x="484.5" y="432" class="step">D</text>
+  <path d="M666 376 L604 376" class="mgmt"/>
+  <circle cx="634" cy="362" r="9" class="stepbg-m"/><text x="630.5" y="366" class="step">E</text>
+
+  <!-- Step legend -->
+  <line x1="40" y1="652" x2="1240" y2="652" stroke="#dde1e7"/>
+  <text x="40" y="676" class="zonetitle">DATA PLANE</text>
+  <text x="40" y="698" class="text"><tspan class="key">1</tspan>  HTTPS to the gateway (DNS points every app name at it)</text>
+  <text x="40" y="718" class="text"><tspan class="key">2</tspan>  Plain HTTP to container:port on the private network</text>
+  <text x="560" y="676" class="zonetitle">CONTROL PLANE</text>
+  <text x="560" y="698" class="text"><tspan class="key">A</tspan>  Admin submits an app  ·  <tspan class="key">B</tspan>  leaf cert signed by the intermediate  ·  <tspan class="key">C</tspan>  cert + YAML written</text>
+  <text x="560" y="718" class="text"><tspan class="key">D</tspan>  proxy hot-reloads the file  ·  <tspan class="key">E</tspan>  manager confirms via the API, or rolls back</text>
+
+  <text x="40" y="756" class="mmuted" style="font-family:system-ui,sans-serif;font-size:12.5px">Generic building blocks: any reverse proxy with a file provider and an API, any internal CA with an online intermediate, any container host.</text>
+</svg>

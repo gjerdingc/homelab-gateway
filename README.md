@@ -7,6 +7,16 @@ Adding an app: create the DNS record, put the container on the `proxy` network, 
 
 The design and acceptance criteria are in [SPEC.md](SPEC.md).
 
+## Diagrams
+
+| Diagram | For |
+|---|---|
+| [Concept](docs/hld-concept.svg) | One-page overview of the idea, for presenting it |
+| [Technical design](docs/hld-technical.svg) | Generic data and control plane, for deploying it elsewhere |
+| [This lab](docs/architecture-lab.svg) | This deployment: hosts, ports, folders and PKI |
+
+![Internal App Gateway concept](docs/hld-concept.svg)
+
 ## What runs
 
 | Container | Role |

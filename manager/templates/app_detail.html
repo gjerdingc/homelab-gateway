@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "_macros.html" import check, expiry %}
+{% block title %}{{ a.slug }} - Traefik Manager{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>{{ a.slug }}{% if a.reserved %} <span class="pill muted">system</span>{% endif %}{% if not a.enabled %} <span class="pill muted">disabled</span>{% endif %}</h1>
+  <a class="btn" href="https://{{ a.fqdn }}/">Open {{ a.fqdn }}</a>
+</div>
+
+<section class="card">
+  <h2>Config</h2>
+  <table class="kv">
+    <tr><th>FQDN</th><td>{{ a.fqdn }}</td></tr>
+    {% if a.extra_sans %}<tr><th>Extra names</th><td>{{ a.extra_sans | join(', ') }}</td></tr>{% endif %}
+    <tr><th>Backend</th><td><code>{{ a.backend_url }}</code></td></tr>
+    <tr><th>Options</th><td>{{ 'LAN only' if a.lan_only else 'open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</td></tr>
+    {% if a.notes %}<tr><th>Notes</th><td>{{ a.notes }}</td></tr>{% endif %}
+  </table>
+</section>
+
+<section class="card">
+  <h2>Checks</h2>
+  <table class="kv">
+    {{ check('DNS', checks.dns) }}
+    {{ check('Backend', checks.backend) }}
+    {{ check('Traefik', checks.traefik) }}
+    {% if e2e %}{{ check('End-to-end', e2e) }}{% endif %}
+  </table>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('app_detail', slug=a.slug) }}">Re-run checks</a>
+    <form method="post" action="{{ url_for('app_e2e', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Run end-to-end TLS check</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Certificate</h2>
+  {% if cert %}
+  <table class="kv">
+    <tr><th>Serial</th><td><code>{{ cert.serial }}</code></td></tr>
+    <tr><th>Names</th><td>{{ cert.sans | join(', ') }}</td></tr>
+    <tr><th>Valid</th><td>{{ cert.not_before }} to {{ cert.not_after }} {{ expiry(a.cert) }}</td></tr>
+    <tr><th>Issuer</th><td>{{ cert.issuer }}</td></tr>
+    <tr><th>SHA-256</th><td><code class="wrap-any">{{ cert.sha256 }}</code></td></tr>
+  </table>
+  {% else %}<p>No certificate on disk.</p>{% endif %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('app_renew', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Renew now</button></form>
+    {% if cert %}<a class="btn" href="{{ url_for('app_fullchain', slug=a.slug) }}">Download fullchain.pem</a>{% endif %}
+  </div>
+  <p class="hint">The private key stays on the Pi and is not downloadable here.</p>
+</section>
+
+{% if not a.reserved %}
+<section class="card">
+  <h2>Actions</h2>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('app_edit', slug=a.slug) }}">Edit</a>
+    <form method="post" action="{{ url_for('app_toggle', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">{{ 'Disable' if a.enabled else 'Enable' }}</button></form>
+  </div>
+  <details class="danger">
+    <summary>Delete this app</summary>
+    <p>This removes the route and archives the certificate files under <code>/data/archive</code>. Type <strong>{{ a.slug }}</strong> to confirm.</p>
+    <form method="post" action="{{ url_for('app_delete', slug=a.slug) }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input name="confirm" autocomplete="off" autocapitalize="none" placeholder="{{ a.slug }}" aria-label="Type the slug to confirm">
+      <button class="btn bad" type="submit">Delete</button>
+    </form>
+  </details>
+</section>
+
+<section class="card">
+  <h2>How to connect your app</h2>
+  <p>Put the container on the <code>proxy</code> network and drop its published ports. Traefik reaches it by container name.</p>
+  <pre>{{ snippet }}</pre>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Generated config</h2>
+  <p class="hint">{{ '_core.yml' if a.reserved else 'app-' + a.slug + '.yml' }} (read-only)</p>
+  <pre>{{ rendered }}</pre>
+</section>
+{% endblock %}

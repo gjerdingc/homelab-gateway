@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import dot %}
+{% block title %}Status - Traefik Manager{% endblock %}
+{% block content %}
+<h1>Status</h1>
+
+<section class="card">
+  <h2>Certificate authority</h2>
+  {% if ca %}
+  <table class="kv">
+    <tr><th>Intermediate</th><td>{{ ca.intermediate.subject }}<br><span class="hint">issued by {{ ca.intermediate.issuer }}, expires {{ ca.intermediate.not_after }} ({{ ca.intermediate.not_after | days_left }} days)</span></td></tr>
+    <tr><th>Root</th><td>{{ ca.root.subject }}<br><span class="hint">expires {{ ca.root.not_after }}</span></td></tr>
+  </table>
+  {% else %}<p>{{ dot('fail') }} {{ ca_error or 'CA not loaded (fix the configuration errors first)' }}</p>{% endif %}
+  <div class="actions"><a class="btn" href="{{ url_for('root_ca') }}">Download root_ca.crt</a></div>
+  <p class="hint">Install the root certificate on client devices so they trust the certificates issued here.</p>
+</section>
+
+<section class="card">
+  <h2>Traefik</h2>
+  {% if version %}<p>{{ dot('ok') }} Reachable, version {{ version }}</p>{% else %}<p>{{ dot('fail') }} API not reachable: {{ api_error }}</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Renewal</h2>
+  <table class="kv">
+    <tr><th>Policy</th><td>Renew when fewer than {{ config.renew_before_days }} days remain, checked every {{ config.renew_check_hours }} hours</td></tr>
+    <tr><th>Last run</th><td>{{ renewer.last_run or 'not run yet' }}{% if renewer.last_run %} {{ dot('ok' if renewer.last_ok else 'fail') }}{% endif %}</td></tr>
+    <tr><th>Renewed</th><td>{{ renewer.last_renewed | join(', ') or 'nothing' }}</td></tr>
+    <tr><th>Next run</th><td>{{ renewer.next_run or 'unknown' }}</td></tr>
+    {% if renewer.last_errors %}<tr><th>Errors</th><td>{% for e in renewer.last_errors %}{{ e }}<br>{% endfor %}</td></tr>{% endif %}
+  </table>
+  <div class="actions">
+    <form method="post" action="{{ url_for('renew_all') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Run renewal check now</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Configuration</h2>
+  <table class="kv">
+    <tr><th>Manager FQDN</th><td>{{ config.manager_fqdn }}</td></tr>
+    <tr><th>Allowed domains</th><td>{{ config.allowed_domains | join(', ') }}</td></tr>
+    <tr><th>LAN CIDRs</th><td>{{ config.lan_cidrs | join(', ') }}</td></tr>
+    <tr><th>Key type / validity</th><td>{{ config.key_type }}, {{ config.cert_validity_days }} days</td></tr>
+    <tr><th>Basic auth</th><td>{{ 'on' if config.basic_auth_users else 'off' }}</td></tr>
+  </table>
+  <div class="actions">
+    <form method="post" action="{{ url_for('regenerate') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Regenerate all config</button></form>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Hand-written config</h2>
+  <p class="hint">Files named <code>manual-*.yml</code> in the dynamic folder are loaded by Traefik and never touched by the manager.</p>
+  {% for f in manual %}<h3>{{ f.name }}</h3><pre>{{ f.content }}</pre>{% else %}<p>None.</p>{% endfor %}
+</section>
+{% endblock %}

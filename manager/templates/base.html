@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Traefik Manager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="{{ url_for('home') }}">Traefik Manager</a>
+    <nav>
+      <a href="{{ url_for('home') }}">Apps</a>
+      <a href="{{ url_for('app_new') }}">Add app</a>
+      <a href="{{ url_for('status') }}">Status</a>
+      <a href="{{ url_for('log_page') }}">Log</a>
+      {% if dashboard_enabled and manager_fqdn %}<a href="https://{{ manager_fqdn }}/dashboard/">Dashboard</a>{% endif %}
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  {% for level, text in banners %}<div class="banner {{ level }}">{{ text }}</div>{% endfor %}
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="banner {{ category }}">{{ message }}</div>
+  {% endfor %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

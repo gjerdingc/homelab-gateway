@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}{{ 'Edit ' + editing if editing else 'Add app' }} - Traefik Manager{% endblock %}
+{% block content %}
+<h1>{{ 'Edit ' + editing if editing else 'Add app' }}</h1>
+<form method="post" action="{{ url_for('app_edit', slug=editing) if editing else url_for('app_new') }}" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if editing %}<input type="hidden" name="editing" value="{{ editing }}">{% endif %}
+  {{ field('slug', 'Slug', v.slug, errors, 'Short name, used for the config file and cert folder. Cannot be changed later.', readonly=editing, placeholder='grafana') }}
+  {{ field('fqdn', 'FQDN', v.fqdn, errors, 'The name clients use. Create the DNS record yourself.', placeholder='grafana.gjecorp.net') }}
+  <div class="field{% if errors.get('extra_sans') %} has-error{% endif %}">
+    <label for="extra_sans">Extra names (SANs)</label>
+    <textarea id="extra_sans" name="extra_sans" rows="2" autocapitalize="none" spellcheck="false">{{ v.extra_sans }}</textarea>
+    <p class="hint">Optional. One per line or comma-separated. Changing names issues a new certificate.</p>
+    {% if errors.get('extra_sans') %}<p class="error">{{ errors['extra_sans'] }}</p>{% endif %}
+  </div>
+  {{ field('backend_url', 'Backend URL', v.backend_url, errors, 'scheme://container:port, reachable from Traefik on the proxy network.', placeholder='http://grafana:3000') }}
+  <div class="checks">
+    <label><input type="checkbox" name="lan_only" {% if v.lan_only %}checked{% endif %}> LAN only (403 from outside the allowed networks)</label>
+    <label><input type="checkbox" name="security_headers" {% if v.security_headers %}checked{% endif %}> Add security headers (HSTS, nosniff, frame deny)</label>
+    <label><input type="checkbox" name="pass_host_header" {% if v.pass_host_header %}checked{% endif %}> Pass the Host header to the backend</label>
+    <label><input type="checkbox" name="backend_tls_skip_verify" {% if v.backend_tls_skip_verify %}checked{% endif %}> Do not verify the backend's TLS certificate (https backends only)</label>
+    {% if errors.get('backend_tls_skip_verify') %}<p class="error">{{ errors['backend_tls_skip_verify'] }}</p>{% endif %}
+  </div>
+  {{ field('notes', 'Notes', v.notes, errors) }}
+  <div class="actions">
+    <button class="btn primary" type="submit">{{ 'Save and apply' if editing else 'Create app and certificate' }}</button>
+    <button class="btn" type="submit" formaction="{{ url_for('app_preview') }}">Preview YAML</button>
+    <a class="btn" href="{{ url_for('app_detail', slug=editing) if editing else url_for('home') }}">Cancel</a>
+  </div>
+</form>
+{% if preview %}<h2>Preview</h2><p class="hint">This is the file that will be written. The certificate paths are filled in when it is issued.</p><pre>{{ preview }}</pre>{% endif %}
+{% endblock %}

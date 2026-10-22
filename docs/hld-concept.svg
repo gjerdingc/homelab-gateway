@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="664" viewBox="0 0 1200 664" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="accent" x1="0" x2="1"><stop offset="0" stop-color="#ae20c3"/><stop offset=".35" stop-color="#db31cf"/><stop offset=".65" stop-color="#ed38ad"/><stop offset="1" stop-color="#de5286"/></linearGradient>
+    <marker id="a-traffic" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6a0b8c"/></marker>
+    <marker id="a-mgmt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5f6b7c"/></marker>
+    <style>
+      .box { fill: #fff; stroke: #dde1e7; stroke-width: 1.2; }
+      .hero { fill: #fff; stroke: #6a0b8c; stroke-width: 1.6; }
+      .title { font-size: 16px; font-weight: 650; fill: #1c2330; }
+      .big { font-size: 19px; font-weight: 700; fill: #1c2330; }
+      .text { font-size: 13px; fill: #5f6b7c; }
+      .app { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; fill: #1c2330; }
+      .label { font-size: 12.5px; fill: #1c2330; font-weight: 600; }
+      .mlabel { font-size: 12.5px; fill: #5f6b7c; font-style: italic; }
+      .zone { fill: none; stroke: #b8bfca; stroke-width: 1.2; stroke-dasharray: 6 5; }
+      .zonetitle { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .06em; fill: #5f6b7c; font-weight: 600; }
+      .traffic { stroke: #6a0b8c; stroke-width: 2.4; fill: none; marker-end: url(#a-traffic); }
+      .mgmt { stroke: #5f6b7c; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#a-mgmt); }
+      .tile { fill: #fff; stroke: #dde1e7; stroke-width: 1.2; }
+      .tiletitle { font-size: 15px; font-weight: 650; fill: #1c2330; }
+      .bg { fill: #f5f6f8; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="664" fill="#f5f6f8"/>
+  <rect width="1200" height="4" fill="url(#accent)"/>
+  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Internal App Gateway</text>
+  <text x="40" y="78" font-size="15" fill="#5f6b7c">One secure front door for every internal web app. HTTPS, certificates and routing are handled for you.</text>
+
+  <!-- Users -->
+  <rect x="40" y="180" width="200" height="120" rx="12" class="box"/>
+  <text x="60" y="210" class="title">Users</text>
+  <text x="60" y="234" class="text">Any browser on the</text>
+  <text x="60" y="252" class="text">internal network</text>
+  <text x="60" y="276" class="text">app.your-domain</text>
+
+  <!-- Gateway -->
+  <rect x="330" y="140" width="300" height="200" rx="14" class="hero"/>
+  <text x="352" y="178" class="big">Secure gateway</text>
+  <text x="352" y="198" class="text">Traefik reverse proxy + dashboard</text>
+  <text x="352" y="232" class="text">•  HTTPS for every app</text>
+  <text x="352" y="256" class="text">•  One name per app</text>
+  <text x="352" y="280" class="text">•  Network allow-list</text>
+  <text x="352" y="304" class="text">•  Security headers by default</text>
+
+  <path d="M240 240 L324 240" class="traffic"/>
+  <text x="258" y="230" class="label">HTTPS</text>
+
+  <!-- Apps -->
+  <rect x="730" y="110" width="430" height="290" rx="14" class="zone"/>
+  <text x="752" y="136" class="zonetitle">PRIVATE APP NETWORK · NO EXPOSED PORTS</text>
+  <rect x="752" y="152" width="386" height="38" rx="8" class="box"/><text x="770" y="176" class="app">prefix</text>
+  <rect x="752" y="198" width="386" height="38" rx="8" class="box"/><text x="770" y="222" class="app">palo-security-audit</text>
+  <rect x="752" y="244" width="386" height="38" rx="8" class="box"/><text x="770" y="268" class="app">edl-self-service</text>
+  <rect x="752" y="290" width="386" height="38" rx="8" class="box"/><text x="770" y="314" class="app">autoconfig</text>
+  <rect x="752" y="336" width="386" height="38" rx="8" class="box" stroke-dasharray="4 4"/><text x="770" y="360" class="app" fill="#5f6b7c">+ your next app</text>
+
+  <path d="M630 240 L726 240" class="traffic"/>
+  <text x="644" y="230" class="label">by name</text>
+
+  <!-- Control plane -->
+  <rect x="330" y="420" width="300" height="104" rx="14" class="box"/>
+  <rect x="330" y="432" width="3" height="22" rx="1.5" fill="url(#accent)"/>
+  <text x="352" y="450" class="title">Gateway Manager</text>
+  <text x="352" y="472" class="text">Self-service web portal</text>
+  <text x="352" y="492" class="text">Issues and renews certificates</text>
+  <text x="352" y="512" class="text">Publishes routes, checks they are live</text>
+
+  <path d="M480 418 L480 346" class="mgmt"/>
+  <text x="490" y="388" class="mlabel">routes + certificates</text>
+
+  <rect x="40" y="428" width="200" height="88" rx="12" class="box"/>
+  <text x="60" y="458" class="title">Internal CA</text>
+  <text x="60" y="480" class="text">Company certificate</text>
+  <text x="60" y="498" class="text">authority</text>
+  <path d="M240 472 L324 472" class="mgmt"/>
+  <text x="258" y="462" class="mlabel">signs</text>
+
+  <rect x="730" y="428" width="230" height="88" rx="12" class="box"/>
+  <text x="750" y="458" class="title">Admin</text>
+  <text x="750" y="480" class="text">Adds an app: name +</text>
+  <text x="750" y="498" class="text">backend, one form</text>
+  <path d="M730 472 L636 472" class="mgmt"/>
+
+  <!-- Apps today -->
+  <text x="40" y="580" class="zonetitle">ALREADY RUNNING ON THE GATEWAY</text>
+  <text x="40" y="606" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Prefix Reserve Portal</tspan>  ·  reserve IP addresses, backed by NetBox</text>
+  <text x="40" y="630" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Palo Security Audit</tspan>  ·  checks Palo Alto configs against security advisories</text>
+  <text x="620" y="606" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">EDL Self Service</tspan>  ·  central EDLs, add and remove entries in a web GUI</text>
+  <text x="620" y="630" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Autoconfig</tspan>  ·  standardized network config with Ansible</text>
+</svg>

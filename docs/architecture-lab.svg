@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="720" viewBox="0 0 1160 720" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="accent" x1="0" x2="1"><stop offset="0" stop-color="#ae20c3"/><stop offset=".35" stop-color="#db31cf"/><stop offset=".65" stop-color="#ed38ad"/><stop offset="1" stop-color="#de5286"/></linearGradient>
+    <marker id="a-traffic" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6a0b8c"/></marker>
+    <marker id="a-mgmt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5f6b7c"/></marker>
+    <style>
+      .box { fill: #fff; stroke: #dde1e7; stroke-width: 1.2; }
+      .title { font-size: 15px; font-weight: 650; fill: #1c2330; }
+      .text { font-size: 12.5px; fill: #5f6b7c; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #1c2330; }
+      .label { font-size: 12px; fill: #1c2330; font-weight: 550; }
+      .mlabel { font-size: 12px; fill: #5f6b7c; font-style: italic; }
+      .zone { fill: none; stroke: #b8bfca; stroke-width: 1.2; stroke-dasharray: 6 5; }
+      .zonetitle { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .06em; fill: #5f6b7c; font-weight: 600; }
+      .traffic { stroke: #6a0b8c; stroke-width: 2; fill: none; marker-end: url(#a-traffic); }
+      .mgmt { stroke: #5f6b7c; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#a-mgmt); }
+      .lblbg { fill: #f5f6f8; }
+    </style>
+  </defs>
+
+  <rect width="1160" height="720" fill="#f5f6f8"/>
+  <rect width="1160" height="4" fill="url(#accent)"/>
+  <text x="30" y="40" font-size="20" font-weight="650" fill="#1c2330">Traefik lab: traffic flow</text>
+  <text x="30" y="62" class="text">How a request reaches an app, and how the manager keeps routes and certificates up to date.</text>
+
+  <!-- Left: client, DNS, deployment -->
+  <rect x="30" y="250" width="180" height="88" rx="10" class="box"/>
+  <text x="46" y="276" class="title">LAN client</text>
+  <text x="46" y="296" class="text">Browser on 10.0.0.0/24</text>
+  <text x="46" y="314" class="text">Trusts the internal root CA</text>
+
+  <rect x="30" y="420" width="180" height="88" rx="10" class="box"/>
+  <text x="46" y="446" class="title">Internal DNS</text>
+  <text x="46" y="466" class="mono">*.gjecorp.net</text>
+  <text x="46" y="484" class="mono">→ 10.0.0.250</text>
+  <text x="46" y="500" class="text">records added by hand</text>
+  <path d="M120 340 L120 416" class="mgmt"/>
+  <text x="128" y="384" class="mlabel">1. look up name</text>
+
+  <rect x="30" y="100" width="180" height="88" rx="10" class="box"/>
+  <text x="46" y="126" class="title">GitHub → Portainer</text>
+  <text x="46" y="146" class="text">Stack from traefik-lab-lb</text>
+  <text x="46" y="164" class="text">deploys both containers</text>
+  <path d="M210 144 L246 144" class="mgmt"/>
+
+  <!-- Pi boundary -->
+  <rect x="250" y="84" width="880" height="560" rx="14" class="zone"/>
+  <text x="268" y="106" class="zonetitle">RASPBERRY PI · 10.0.0.250 · DOCKER</text>
+
+  <!-- Traefik -->
+  <rect x="290" y="226" width="230" height="150" rx="10" class="box"/>
+  <rect x="290" y="236" width="3" height="20" rx="1.5" fill="url(#accent)"/>
+  <text x="306" y="252" class="title">Traefik v3</text>
+  <text x="306" y="274" class="text">:80 → redirect to HTTPS</text>
+  <text x="306" y="292" class="text">:443 terminates TLS</text>
+  <text x="306" y="310" class="text">Routes by Host name</text>
+  <text x="306" y="328" class="text">LAN-only + security headers</text>
+  <text x="306" y="346" class="text">/dashboard on traefik.gjecorp.net</text>
+  <text x="306" y="364" class="text">API :8080 (not published)</text>
+
+  <!-- Client to Traefik -->
+  <path d="M210 294 L286 294" class="traffic"/>
+  <rect x="216" y="268" width="66" height="18" rx="4" class="lblbg"/>
+  <text x="220" y="281" class="label">2. HTTPS</text>
+
+  <!-- Proxy network -->
+  <rect x="610" y="124" width="300" height="350" rx="12" class="zone"/>
+  <text x="626" y="146" class="zonetitle">DOCKER NETWORK: proxy</text>
+
+  <rect x="640" y="162" width="240" height="56" rx="9" class="box"/>
+  <text x="656" y="185" class="mono" font-weight="600">palo-security-audit</text>
+  <text x="656" y="204" class="text">audit.gjecorp.net · HTTP :8080</text>
+
+  <rect x="640" y="230" width="240" height="56" rx="9" class="box"/>
+  <text x="656" y="253" class="mono" font-weight="600">edl-self-service</text>
+  <text x="656" y="272" class="text">edl.gjecorp.net · HTTP :8080</text>
+
+  <rect x="640" y="298" width="240" height="56" rx="9" class="box" stroke-dasharray="4 4"/>
+  <text x="656" y="321" class="mono" font-weight="600" fill="#5f6b7c">next app</text>
+  <text x="656" y="340" class="text">added in the GUI, no host ports</text>
+
+  <rect x="640" y="366" width="240" height="94" rx="9" class="box"/>
+  <rect x="640" y="376" width="3" height="20" rx="1.5" fill="url(#accent)"/>
+  <text x="656" y="391" class="title">Traefik Manager</text>
+  <text x="656" y="410" class="text">traefik.gjecorp.net · :8000</text>
+  <text x="656" y="428" class="text">Issues certs, writes routes,</text>
+  <text x="656" y="446" class="text">renews before expiry</text>
+
+  <!-- Traefik to apps -->
+  <path d="M520 290 L636 190" class="traffic"/>
+  <path d="M520 296 L636 258" class="traffic"/>
+  <path d="M520 302 L636 326" class="traffic"/>
+  <path d="M520 308 L636 404" class="traffic"/>
+  <text x="528" y="196" class="label">3. HTTP to</text>
+  <text x="528" y="211" class="label">container</text>
+
+  <!-- Host folders -->
+  <rect x="290" y="510" width="260" height="100" rx="10" class="box"/>
+  <text x="306" y="536" class="title">Host folders</text>
+  <text x="306" y="558" class="mono">/opt/traefik/dynamic</text>
+  <text x="306" y="574" class="text">  route config (*.yml)</text>
+  <text x="306" y="594" class="mono">/opt/traefik/certs</text>
+  <text x="472" y="594" class="text">certs + keys</text>
+
+  <path d="M705 464 L554 548" class="mgmt"/>
+  <rect x="580" y="476" width="88" height="18" rx="4" class="lblbg"/>
+  <text x="584" y="489" class="mlabel">writes files</text>
+
+  <path d="M405 506 L405 380" class="mgmt"/>
+  <rect x="412" y="436" width="104" height="18" rx="4" class="lblbg"/>
+  <text x="416" y="449" class="mlabel">watches, reloads</text>
+
+  <path d="M640 452 Q 560 440 524 372" class="mgmt"/>
+  <rect x="534" y="404" width="96" height="18" rx="4" class="lblbg"/>
+  <text x="538" y="417" class="mlabel">confirms reload</text>
+
+  <!-- PKI -->
+  <rect x="940" y="366" width="170" height="108" rx="10" class="box"/>
+  <text x="956" y="392" class="title">Intermediate CA</text>
+  <text x="956" y="412" class="mono">~/pki/intermediate</text>
+  <text x="956" y="430" class="text">read-only, signs certs</text>
+  <text x="956" y="448" class="text">Root key stays offline</text>
+  <path d="M936 414 L884 414" class="mgmt"/>
+
+  <!-- Break-glass -->
+  <rect x="930" y="178" width="186" height="88" rx="10" class="box" stroke-dasharray="4 4"/>
+  <text x="946" y="204" class="title">Fallback :8090</text>
+  <text x="946" y="224" class="mono" font-size="11.5">http://10.0.0.250:8090</text>
+  <text x="946" y="244" class="text">Straight to the manager</text>
+  <text x="946" y="260" class="text">if Traefik config breaks</text>
+  <path d="M1000 270 L884 372" class="mgmt"/>
+
+  <!-- Legend -->
+  <line x1="30" y1="676" x2="70" y2="676" class="traffic"/>
+  <text x="80" y="680" class="text">User traffic</text>
+  <line x1="190" y1="676" x2="230" y2="676" class="mgmt"/>
+  <text x="240" y="680" class="text">Management and config</text>
+  <rect x="420" y="667" width="40" height="18" rx="4" class="zone"/>
+  <text x="470" y="680" class="text">Boundary (host or Docker network)</text>
+</svg>

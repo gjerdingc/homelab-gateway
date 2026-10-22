@@ -46,25 +46,35 @@ class TraefikAPI:
     def service(self, slug):
         return self._get(f"/api/http/services/{slug}@file")
 
-    def wait_for_router(self, slug, timeout=10.0, interval=0.5):
-        """Poll until the router is enabled.
+    def middleware(self, name):
+        return self._get(f"/api/http/middlewares/{name}@file")
 
-        Returns (state, detail): state is 'enabled', 'rejected' (Traefik saw it and
-        refused it), 'pending' (not visible yet) or 'unreachable' (API down)."""
+    def wait_for_router(self, slug, marker=None, timeout=10.0, interval=0.5):
+        """Poll until Traefik has loaded the file with this revision marker, then read the router.
+
+        Without the marker an edited router would look enabled straight away, because
+        Traefik still serves the previous version until it reloads the file.
+
+        Returns (state, detail): state is 'enabled', 'rejected' (Traefik loaded the file
+        and refused the router), 'pending' (not loaded yet) or 'unreachable' (API down)."""
         deadline = time.monotonic() + timeout
         last = "pending"
-        detail = f"Router {slug}@file did not appear within {int(timeout)}s"
+        detail = f"Traefik did not load the new config within {int(timeout)}s"
         while True:
             try:
-                router = self.router(slug)
+                loaded = marker is None or self.middleware(marker) is not None
+                router = self.router(slug) if loaded else None
             except requests.RequestException as exc:
                 return "unreachable", f"Traefik API not reachable: {describe(exc)}"
-            if router:
-                if router.get("status") == "enabled":
+            if loaded:
+                if router is None:
+                    last, detail = "rejected", f"Traefik loaded the file but has no router {slug}@file"
+                elif router.get("status") == "enabled":
                     return "enabled", "Traefik loaded the router"
-                errors = router.get("error") or []
-                last = "rejected" if router.get("status") == "disabled" else "pending"
-                detail = "; ".join(errors) if errors else f"Router status is {router.get('status')!r}"
+                else:
+                    errors = router.get("error") or []
+                    last = "rejected" if router.get("status") == "disabled" else "pending"
+                    detail = "; ".join(errors) if errors else f"Router status is {router.get('status')!r}"
             if time.monotonic() >= deadline:
                 return last, detail
             time.sleep(interval)

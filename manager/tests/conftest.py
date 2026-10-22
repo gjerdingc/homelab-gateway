@@ -78,10 +78,11 @@ class FakeAPI:
     """Stands in for TraefikAPI; state/detail control what wait_for_router answers."""
 
     def __init__(self):
-        self.state, self.detail, self.calls = "enabled", "ok", []
+        self.state, self.detail, self.calls, self.markers = "enabled", "ok", [], []
 
-    def wait_for_router(self, name, timeout=10.0, interval=0.5):
+    def wait_for_router(self, name, marker=None, timeout=10.0, interval=0.5):
         self.calls.append(name)
+        self.markers.append(marker)
         return self.state, self.detail
 
     def routers(self):

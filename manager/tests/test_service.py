@@ -224,3 +224,29 @@ def test_concurrent_creates_do_not_corrupt_apps_yml(manager):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert not errors and sorted(a["slug"] for a in manager.apps()) == [f"app{i}" for i in range(6)]
+
+
+def test_apply_waits_for_the_marker_of_the_file_it_wrote(manager):
+    manager.create_app(FORM)
+    manager.update_app("grafana", {**FORM, "backend_url": "http://grafana:3001"})
+    text = open(dyn(manager, "app-grafana.yml")).read()
+    assert manager.api.markers[-1] == tc.revision_marker(text)
+    assert manager.api.markers[0] != manager.api.markers[1]
+
+
+def test_reordering_extra_names_does_not_reissue(manager):
+    manager.create_app({**FORM, "extra_sans": "a.gjecorp.net b.gjecorp.net"})
+    serial = manager.get("grafana")["cert"]["serial"]
+    manager.update_app("grafana", {**FORM, "extra_sans": "b.gjecorp.net a.gjecorp.net"})
+    assert manager.get("grafana")["cert"]["serial"] == serial
+    manager.update_app("grafana", {**FORM, "fqdn": "a.gjecorp.net", "extra_sans": "grafana.gjecorp.net b.gjecorp.net"})
+    assert manager.get("grafana")["cert"]["serial"] != serial  # the CN changed
+
+
+def test_overlapping_renewal_runs_renew_once(manager):
+    manager.create_app(FORM)
+    manager.config.renew_before_days = 400
+    first, _ = manager.renew_due()
+    manager.config.renew_before_days = 30  # what a second, overlapping run sees after the first finished
+    second, _ = manager.renew_due()
+    assert first == ["grafana"] and second == []

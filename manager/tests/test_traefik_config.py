@@ -29,6 +29,11 @@ http:
         passHostHeader: true
         servers:
         - url: http://grafana:3000
+  middlewares:
+    tm-rev-grafana-35b73ae3a0:
+      headers:
+        customResponseHeaders:
+          X-TM-Rev: 35b73ae3a0
 tls:
   certificates:
   - certFile: /etc/traefik/certs/grafana/4f2a.crt
@@ -82,3 +87,13 @@ def test_core_dashboard_disabled_and_basic_auth():
     assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "basic-auth@file"]
     assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == ["me:$apr1$x$y"]
     assert "stores" not in data["tls"]
+
+
+def test_revision_marker_tracks_content():
+    marker = tc.revision_marker(tc.render_app(APP))
+    assert marker == "tm-rev-grafana-35b73ae3a0"
+    assert tc.revision_marker(tc.render_app(dict(APP))) == marker
+    renewed = {**APP, "cert": {"cert_path": "/new.crt", "key_path": "/new.key"}}
+    assert tc.revision_marker(tc.render_app(renewed)) != marker
+    assert tc.revision_marker(tc.render_core(core_config(), None)).startswith("tm-rev-core-")
+    assert tc.revision_marker("http: {}\n") is None

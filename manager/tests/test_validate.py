@@ -76,3 +76,40 @@ def test_describe_shortens_connection_errors():
     long = requests.ConnectionError("HTTPConnectionPool(host='traefik'): NameResolutionError Failed to resolve " + "x" * 400)
     assert "does not resolve" in describe(long) and len(describe(long)) < 120
     assert describe(requests.Timeout()) == "timed out"
+
+
+class _StubAPI:
+    """TraefikAPI with canned answers: the router is enabled from the old config,
+    and the new revision marker appears only on the third poll."""
+
+    def __init__(self, router_after):
+        from traefik_api import TraefikAPI
+        self.api = TraefikAPI("http://x")
+        self.polls = 0
+        self.router_after = router_after
+        self.api.middleware = self.middleware
+        self.api.router = lambda slug: self.router_after if self.polls >= 3 else {"status": "enabled"}
+
+    def middleware(self, name):
+        self.polls += 1
+        return {"name": name} if self.polls >= 3 else None
+
+
+def test_wait_for_router_ignores_the_stale_router_until_the_marker_loads():
+    stub = _StubAPI({"status": "enabled"})
+    assert stub.api.wait_for_router("app", "tm-rev-app-1", timeout=5, interval=0) == ("enabled", "Traefik loaded the router")
+    assert stub.polls == 3
+
+
+def test_wait_for_router_reports_rejection_after_reload():
+    stub = _StubAPI({"status": "disabled", "error": ["middleware nope@file does not exist"]})
+    state, detail = stub.api.wait_for_router("app", "tm-rev-app-1", timeout=0.2, interval=0)
+    assert state == "rejected" and "nope" in detail
+
+
+def test_wait_for_router_pending_when_marker_never_loads():
+    from traefik_api import TraefikAPI
+    api = TraefikAPI("http://x")
+    api.middleware = lambda name: None
+    api.router = lambda slug: {"status": "enabled"}
+    assert api.wait_for_router("app", "tm-rev-app-1", timeout=0.05, interval=0)[0] == "pending"

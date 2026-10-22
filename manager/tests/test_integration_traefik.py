@@ -160,14 +160,16 @@ def test_full_lifecycle_against_real_traefik(stack):
                           "extra_sans": "demo2.gjecorp.net"})
     second = m.get("demo")["cert"]["serial"]
     assert second != first
-    stack.until(lambda: stack.get("demo.gjecorp.net")[2] == second)
+    # Confirmed means live: no waiting after the apply returns.
+    assert "demo2.gjecorp.net" in m.api.router("demo")["rule"]
+    assert stack.get("demo.gjecorp.net")[2] == second
     assert stack.get("demo2.gjecorp.net")[0] == 200
 
     # Renewal also swaps the served cert.
     m.config.renew_before_days = 400
     assert m.renew_due()[0].count("demo") == 1
     third = m.get("demo")["cert"]["serial"]
-    stack.until(lambda: stack.get("demo.gjecorp.net")[2] == third)
+    assert stack.get("demo.gjecorp.net")[2] == third
 
     # Hand-written config is loaded and survives regeneration.
     manual = os.path.join(m.config.dynamic_dir, "manual-test.yml")
@@ -223,3 +225,28 @@ def test_killing_the_manager_does_not_affect_traffic(stack):
     m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url})
     del m, stack.manager  # nothing from the manager is involved in serving requests
     assert stack.get("demo.gjecorp.net")[0] == 200
+
+
+def test_edit_rejected_by_traefik_is_rolled_back(stack, monkeypatch):
+    import traefik_config as tc
+    m = stack.manager
+    m.startup()
+    backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+    form = {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url}
+    m.create_app(form)
+    before = open(os.path.join(m.config.dynamic_dir, "app-demo.yml")).read()
+
+    real = tc.render_app
+
+    def broken(app):  # a router that points at a middleware Traefik does not have
+        return real({**app, "lan_only": False}).replace("- secure-headers@file", "- does-not-exist@file")
+
+    monkeypatch.setattr(tc, "render_app", broken)
+    with pytest.raises(ApplyError, match="does-not-exist"):
+        m.update_app("demo", {**form, "backend_url": "http://127.0.0.1:1"})
+    monkeypatch.undo()
+
+    assert open(os.path.join(m.config.dynamic_dir, "app-demo.yml")).read() == before
+    assert m.get("demo")["backend_url"] == backend_url
+    stack.until(lambda: stack.get("demo.gjecorp.net")[0] == 200)
+    assert m.api.router("demo")["status"] == "enabled"

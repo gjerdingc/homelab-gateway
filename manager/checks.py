@@ -18,7 +18,7 @@ def _r(status, detail):
 
 def dns_check(fqdn, pi_ip=""):
     try:
-        infos = socket.getaddrinfo(fqdn, None, socket.AF_INET)
+        infos = socket.getaddrinfo(fqdn, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except socket.gaierror as exc:
         return _r("fail", f"{fqdn} does not resolve ({exc.strerror or exc})")
     addrs = sorted({i[4][0] for i in infos})

@@ -1,15 +1,38 @@
 """Render the Traefik dynamic config files the file provider loads."""
 
+import hashlib
+
 import yaml
 
 MARKER = "# Managed by traefik-manager."
+# Each generated file carries an unused middleware named after a hash of its content.
+# When the Traefik API lists that name, Traefik has loaded exactly this version of the file.
+REV_PREFIX = "tm-rev-"
 HEADER = MARKER + " Do not edit. Changes will be overwritten.\n"
 
 RESERVED = "_manager"
 
 
-def _dump(data):
-    return HEADER + yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=1000)
+def _yaml(data):
+    return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=1000)
+
+
+def _dump(data, name):
+    """Serialize with the revision marker middleware added under http.middlewares."""
+    digest = hashlib.sha256(_yaml(data).encode()).hexdigest()[:10]
+    # An empty `headers: {}` makes Traefik reject the whole file, so the marker sets one header.
+    marker = {"headers": {"customResponseHeaders": {"X-TM-Rev": digest}}}
+    data.setdefault("http", {}).setdefault("middlewares", {})[f"{REV_PREFIX}{name}-{digest}"] = marker
+    return HEADER + _yaml(data)
+
+
+def revision_marker(text):
+    """Name of the revision marker middleware in a rendered file, or None."""
+    data = yaml.safe_load(text) or {}
+    for name in ((data.get("http") or {}).get("middlewares") or {}):
+        if name.startswith(REV_PREFIX):
+            return name
+    return None
 
 
 def is_managed(text):
@@ -53,7 +76,7 @@ def render_app(app):
     cert = app.get("cert")
     if cert:
         data["tls"] = {"certificates": [{"certFile": cert["cert_path"], "keyFile": cert["key_path"]}]}
-    return _dump(data)
+    return _dump(data, slug)
 
 
 def render_core(config, manager_cert):
@@ -107,4 +130,4 @@ def render_core(config, manager_cert):
         pair = {"certFile": manager_cert["cert_path"], "keyFile": manager_cert["key_path"]}
         data["tls"]["certificates"] = [dict(pair)]
         data["tls"]["stores"] = {"default": {"defaultCertificate": dict(pair)}}
-    return _dump(data)
+    return _dump(data, "core")

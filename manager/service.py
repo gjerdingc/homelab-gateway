@@ -42,7 +42,8 @@ class Result:
 
 
 def _names(app):
-    return [app["fqdn"], *app.get("extra_sans", [])]
+    """The cert's identity: the FQDN (it is the CN) plus the set of extra SANs."""
+    return app["fqdn"], frozenset(app.get("extra_sans", []))
 
 
 class Manager:
@@ -205,7 +206,8 @@ class Manager:
             raise
 
         if app.get("enabled", True):
-            state, detail = self.api.wait_for_router(MANAGER_ROUTER if app.get("reserved") else slug)
+            marker = tc.revision_marker(self.render_for(app))
+            state, detail = self.api.wait_for_router(MANAGER_ROUTER if app.get("reserved") else slug, marker)
         else:
             state, detail = "enabled", "App is disabled; no router written"
         if state == "rejected":
@@ -379,14 +381,17 @@ class Manager:
         renewed, errors = [], []
         if not self.ready:
             return renewed, [self.problem()]
-        for app in list(self.apps()):
-            if not self.due_for_renewal(app):
-                continue
+        for slug in [a["slug"] for a in self.apps()]:
             try:
-                self.renew_app(app["slug"])
-                renewed.append(app["slug"])
+                with self.lock:
+                    # Re-read under the lock: another run may have just renewed it.
+                    app = self.get(slug)
+                    if not app or not self.due_for_renewal(app):
+                        continue
+                    self.renew_app(slug)
+                renewed.append(slug)
             except Exception as exc:
-                msg = f"{app['slug']}: {exc}"
+                msg = f"{slug}: {exc}"
                 errors.append(msg)
                 self.actions.write(f"renewal failed for {msg}", "ERROR")
         return renewed, errors

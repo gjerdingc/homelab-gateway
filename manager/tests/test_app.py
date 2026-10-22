@@ -76,5 +76,5 @@ def test_config_errors_show_banner_and_block_changes(tmp_path, pki_session):
     flask_app = app_module.create_app(make_env(tmp_path, pki_session, LAN_CIDRS="nonsense"), start_background=False)
     c = flask_app.test_client()
     html = c.get("/").get_data(as_text=True)
-    assert "LAN_CIDRS" in html and "banner error" in html
+    assert "LAN_CIDRS" in html and "alert alert-error" in html
     assert c.get("/healthz").json == {"ok": True, "ready": False}

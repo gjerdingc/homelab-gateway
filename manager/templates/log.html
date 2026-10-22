@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Log - Traefik Manager{% endblock %}
 {% block content %}
-<h1>Log</h1>
-<p class="hint">Last {{ lines | length }} actions, newest first.</p>
-<pre class="log">{% for l in lines %}{{ l }}
-{% else %}Nothing logged yet.{% endfor %}</pre>
+<div class="page-head">
+  <div>
+    <h1>Log</h1>
+    <p class="muted">Last {{ lines | length }} actions, newest first.</p>
+  </div>
+</div>
+<pre class="code wrap">{% for l in lines %}<span class="{{ 'l-err' if ' ERROR ' in l else 'l-warn' if ' WARN ' in l else '' }}">{{ l }}</span>
+{% else %}<span class="l-dim">Nothing logged yet.</span>{% endfor %}</pre>
 {% endblock %}

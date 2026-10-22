@@ -1,35 +1,45 @@
 {% extends "base.html" %}
-{% from "_macros.html" import dot %}
+{% from "_macros.html" import status_badge %}
 {% block title %}Status - Traefik Manager{% endblock %}
 {% block content %}
-<h1>Status</h1>
+<div class="page-head">
+  <div>
+    <h1>Status</h1>
+    <p class="muted">CA, Traefik, renewal and configuration.</p>
+  </div>
+</div>
 
 <section class="card">
   <h2>Certificate authority</h2>
   {% if ca %}
-  <table class="kv">
-    <tr><th>Intermediate</th><td>{{ ca.intermediate.subject }}<br><span class="hint">issued by {{ ca.intermediate.issuer }}, expires {{ ca.intermediate.not_after }} ({{ ca.intermediate.not_after | days_left }} days)</span></td></tr>
-    <tr><th>Root</th><td>{{ ca.root.subject }}<br><span class="hint">expires {{ ca.root.not_after }}</span></td></tr>
-  </table>
-  {% else %}<p>{{ dot('fail') }} {{ ca_error or 'CA not loaded (fix the configuration errors first)' }}</p>{% endif %}
+  <dl class="kv">
+    <dt>Intermediate</dt><dd>{{ ca.intermediate.subject }}</dd>
+    <dt>Issued by</dt><dd>{{ ca.intermediate.issuer }}</dd>
+    <dt>Expires</dt><dd><span class="mono">{{ ca.intermediate.not_after }}</span> · {{ ca.intermediate.not_after | days_left }} days</dd>
+    <dt>Root</dt><dd>{{ ca.root.subject }}</dd>
+    <dt>Root expires</dt><dd class="mono">{{ ca.root.not_after }}</dd>
+  </dl>
+  {% else %}<div class="alert alert-error">{{ ca_error or 'CA not loaded. Fix the configuration errors first.' }}</div>{% endif %}
   <div class="actions"><a class="btn" href="{{ url_for('root_ca') }}">Download root_ca.crt</a></div>
-  <p class="hint">Install the root certificate on client devices so they trust the certificates issued here.</p>
+  <p class="help">Install the root certificate on client devices so they trust the certificates issued here.</p>
 </section>
 
 <section class="card">
   <h2>Traefik</h2>
-  {% if version %}<p>{{ dot('ok') }} Reachable, version {{ version }}</p>{% else %}<p>{{ dot('fail') }} API not reachable: {{ api_error }}</p>{% endif %}
+  <dl class="kv">
+    <dt>API</dt><dd>{% if version %}{{ status_badge('ok') }}<span class="mono">{{ version }}</span>{% else %}{{ status_badge('fail') }}{{ api_error }}{% endif %}</dd>
+  </dl>
 </section>
 
 <section class="card">
   <h2>Renewal</h2>
-  <table class="kv">
-    <tr><th>Policy</th><td>Renew when fewer than {{ config.renew_before_days }} days remain, checked every {{ config.renew_check_hours }} hours</td></tr>
-    <tr><th>Last run</th><td>{{ renewer.last_run or 'not run yet' }}{% if renewer.last_run %} {{ dot('ok' if renewer.last_ok else 'fail') }}{% endif %}</td></tr>
-    <tr><th>Renewed</th><td>{{ renewer.last_renewed | join(', ') or 'nothing' }}</td></tr>
-    <tr><th>Next run</th><td>{{ renewer.next_run or 'unknown' }}</td></tr>
-    {% if renewer.last_errors %}<tr><th>Errors</th><td>{% for e in renewer.last_errors %}{{ e }}<br>{% endfor %}</td></tr>{% endif %}
-  </table>
+  <dl class="kv">
+    <dt>Policy</dt><dd>Renew when fewer than {{ config.renew_before_days }} days remain, checked every {{ config.renew_check_hours }} hours</dd>
+    <dt>Last run</dt><dd>{% if renewer.last_run %}{{ status_badge('ok' if renewer.last_ok else 'fail') }}<span class="mono">{{ renewer.last_run }}</span>{% else %}Not run yet{% endif %}</dd>
+    <dt>Renewed</dt><dd class="mono">{{ renewer.last_renewed | join(', ') or '-' }}</dd>
+    <dt>Next run</dt><dd class="mono">{{ renewer.next_run or '-' }}</dd>
+    {% if renewer.last_errors %}<dt>Errors</dt><dd>{% for e in renewer.last_errors %}{{ e }}<br>{% endfor %}</dd>{% endif %}
+  </dl>
   <div class="actions">
     <form method="post" action="{{ url_for('renew_all') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Run renewal check now</button></form>
   </div>
@@ -37,13 +47,13 @@
 
 <section class="card">
   <h2>Configuration</h2>
-  <table class="kv">
-    <tr><th>Manager FQDN</th><td>{{ config.manager_fqdn }}</td></tr>
-    <tr><th>Allowed domains</th><td>{{ config.allowed_domains | join(', ') }}</td></tr>
-    <tr><th>LAN CIDRs</th><td>{{ config.lan_cidrs | join(', ') }}</td></tr>
-    <tr><th>Key type / validity</th><td>{{ config.key_type }}, {{ config.cert_validity_days }} days</td></tr>
-    <tr><th>Basic auth</th><td>{{ 'on' if config.basic_auth_users else 'off' }}</td></tr>
-  </table>
+  <dl class="kv">
+    <dt>Manager FQDN</dt><dd class="mono">{{ config.manager_fqdn }}</dd>
+    <dt>Allowed domains</dt><dd class="mono">{{ config.allowed_domains | join(', ') }}</dd>
+    <dt>LAN CIDRs</dt><dd class="mono">{{ config.lan_cidrs | join(', ') }}</dd>
+    <dt>Key / validity</dt><dd><span class="mono">{{ config.key_type }}</span>, {{ config.cert_validity_days }} days</dd>
+    <dt>Basic auth</dt><dd>{{ 'On' if config.basic_auth_users else 'Off' }}</dd>
+  </dl>
   <div class="actions">
     <form method="post" action="{{ url_for('regenerate') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Regenerate all config</button></form>
   </div>
@@ -51,7 +61,7 @@
 
 <section class="card">
   <h2>Hand-written config</h2>
-  <p class="hint">Files named <code>manual-*.yml</code> in the dynamic folder are loaded by Traefik and never touched by the manager.</p>
-  {% for f in manual %}<h3>{{ f.name }}</h3><pre>{{ f.content }}</pre>{% else %}<p>None.</p>{% endfor %}
+  <p class="help">Files named <span class="mono">manual-*.yml</span> in the dynamic folder are loaded by Traefik and never touched by the manager.</p>
+  {% for f in manual %}<h3 class="mono">{{ f.name }}</h3><pre class="code">{{ f.content }}</pre>{% else %}<p class="muted">None.</p>{% endfor %}
 </section>
 {% endblock %}

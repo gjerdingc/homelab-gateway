@@ -2,30 +2,52 @@
 {% from "_macros.html" import check, expiry %}
 {% block title %}{{ a.slug }} - Traefik Manager{% endblock %}
 {% block content %}
-<div class="head">
-  <h1>{{ a.slug }}{% if a.reserved %} <span class="pill muted">system</span>{% endif %}{% if not a.enabled %} <span class="pill muted">disabled</span>{% endif %}</h1>
+<div class="page-head">
+  <div>
+    <h1><span class="mono">{{ a.slug }}</span></h1>
+    <p class="muted">
+      {% if a.reserved %}<span class="badge badge-muted">system</span> {% endif %}
+      {% if not a.enabled %}<span class="badge badge-muted">disabled</span> {% endif %}
+      <span class="mono">{{ a.fqdn }}</span> → <span class="mono">{{ a.backend_url }}</span>
+    </p>
+  </div>
   <a class="btn" href="https://{{ a.fqdn }}/">Open {{ a.fqdn }}</a>
 </div>
 
 <section class="card">
   <h2>Config</h2>
-  <table class="kv">
-    <tr><th>FQDN</th><td>{{ a.fqdn }}</td></tr>
-    {% if a.extra_sans %}<tr><th>Extra names</th><td>{{ a.extra_sans | join(', ') }}</td></tr>{% endif %}
-    <tr><th>Backend</th><td><code>{{ a.backend_url }}</code></td></tr>
-    <tr><th>Options</th><td>{{ 'LAN only' if a.lan_only else 'open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</td></tr>
-    {% if a.notes %}<tr><th>Notes</th><td>{{ a.notes }}</td></tr>{% endif %}
-  </table>
+  <dl class="kv">
+    <dt>FQDN</dt><dd class="mono">{{ a.fqdn }}</dd>
+    {% if a.extra_sans %}<dt>Extra names</dt><dd class="mono">{{ a.extra_sans | join(', ') }}</dd>{% endif %}
+    <dt>Backend</dt><dd class="mono">{{ a.backend_url }}</dd>
+    <dt>Options</dt><dd>{{ 'LAN only' if a.lan_only else 'Open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</dd>
+    {% if a.notes %}<dt>Notes</dt><dd>{{ a.notes }}</dd>{% endif %}
+  </dl>
+  {% if not a.reserved %}
+  <div class="actions">
+    <a class="btn btn-primary" href="{{ url_for('app_edit', slug=a.slug) }}">Edit</a>
+    <form method="post" action="{{ url_for('app_toggle', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">{{ 'Disable' if a.enabled else 'Enable' }}</button></form>
+  </div>
+  <details class="danger-zone">
+    <summary>Delete this app</summary>
+    <p class="help">Removes the route and archives the certificate files under <span class="mono">/data/archive</span>. Type <strong class="mono">{{ a.slug }}</strong> to confirm.</p>
+    <form method="post" action="{{ url_for('app_delete', slug=a.slug) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input name="confirm" class="mono" autocomplete="off" autocapitalize="none" placeholder="{{ a.slug }}" aria-label="Type the slug to confirm">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </details>
+  {% endif %}
 </section>
 
 <section class="card">
   <h2>Checks</h2>
-  <table class="kv">
+  <dl class="kv">
     {{ check('DNS', checks.dns) }}
     {{ check('Backend', checks.backend) }}
     {{ check('Traefik', checks.traefik) }}
     {% if e2e %}{{ check('End-to-end', e2e) }}{% endif %}
-  </table>
+  </dl>
   <div class="actions">
     <a class="btn" href="{{ url_for('app_detail', slug=a.slug) }}">Re-run checks</a>
     <form method="post" action="{{ url_for('app_e2e', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Run end-to-end TLS check</button></form>
@@ -35,49 +57,33 @@
 <section class="card">
   <h2>Certificate</h2>
   {% if cert %}
-  <table class="kv">
-    <tr><th>Serial</th><td><code>{{ cert.serial }}</code></td></tr>
-    <tr><th>Names</th><td>{{ cert.sans | join(', ') }}</td></tr>
-    <tr><th>Valid</th><td>{{ cert.not_before }} to {{ cert.not_after }} {{ expiry(a.cert) }}</td></tr>
-    <tr><th>Issuer</th><td>{{ cert.issuer }}</td></tr>
-    <tr><th>SHA-256</th><td><code class="wrap-any">{{ cert.sha256 }}</code></td></tr>
-  </table>
-  {% else %}<p>No certificate on disk.</p>{% endif %}
+  <dl class="kv">
+    <dt>Expires</dt><dd>{{ expiry(a.cert) }}</dd>
+    <dt>Serial</dt><dd class="mono">{{ cert.serial }}</dd>
+    <dt>Names</dt><dd class="mono">{{ cert.sans | join(', ') }}</dd>
+    <dt>Valid</dt><dd class="mono">{{ cert.not_before }} – {{ cert.not_after }}</dd>
+    <dt>Issuer</dt><dd>{{ cert.issuer }}</dd>
+    <dt>SHA-256</dt><dd class="mono">{{ cert.sha256 }}</dd>
+  </dl>
+  {% else %}<p class="muted">No certificate on disk.</p>{% endif %}
   <div class="actions">
     <form method="post" action="{{ url_for('app_renew', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Renew now</button></form>
     {% if cert %}<a class="btn" href="{{ url_for('app_fullchain', slug=a.slug) }}">Download fullchain.pem</a>{% endif %}
   </div>
-  <p class="hint">The private key stays on the Pi and is not downloadable here.</p>
+  <p class="help">The private key stays on the Pi and cannot be downloaded here.</p>
 </section>
 
 {% if not a.reserved %}
 <section class="card">
-  <h2>Actions</h2>
-  <div class="actions">
-    <a class="btn" href="{{ url_for('app_edit', slug=a.slug) }}">Edit</a>
-    <form method="post" action="{{ url_for('app_toggle', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">{{ 'Disable' if a.enabled else 'Enable' }}</button></form>
-  </div>
-  <details class="danger">
-    <summary>Delete this app</summary>
-    <p>This removes the route and archives the certificate files under <code>/data/archive</code>. Type <strong>{{ a.slug }}</strong> to confirm.</p>
-    <form method="post" action="{{ url_for('app_delete', slug=a.slug) }}" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input name="confirm" autocomplete="off" autocapitalize="none" placeholder="{{ a.slug }}" aria-label="Type the slug to confirm">
-      <button class="btn bad" type="submit">Delete</button>
-    </form>
-  </details>
-</section>
-
-<section class="card">
-  <h2>How to connect your app</h2>
-  <p>Put the container on the <code>proxy</code> network and drop its published ports. Traefik reaches it by container name.</p>
-  <pre>{{ snippet }}</pre>
+  <h2>Connect your app</h2>
+  <p class="help">Put the container on the <span class="mono">proxy</span> network and drop any published ports. Traefik reaches it by container name.</p>
+  <pre class="code">{{ snippet }}</pre>
 </section>
 {% endif %}
 
 <section class="card">
   <h2>Generated config</h2>
-  <p class="hint">{{ '_core.yml' if a.reserved else 'app-' + a.slug + '.yml' }} (read-only)</p>
-  <pre>{{ rendered }}</pre>
+  <p class="help mono">{{ '_core.yml' if a.reserved else 'app-' + a.slug + '.yml' }}</p>
+  <pre class="code">{{ rendered }}</pre>
 </section>
 {% endblock %}

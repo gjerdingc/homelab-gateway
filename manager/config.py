@@ -48,6 +48,9 @@ class Config:
         self.manager_backend = env.get("MANAGER_BACKEND", "http://traefik-manager:8000")
 
         self.traefik_https_port = self._int(env, "TRAEFIK_HTTPS_PORT", 443, 1, 65535)
+        self.access_log_path = env.get("ACCESS_LOG_PATH", "/var/log/traefik/access.log").strip()
+        self.stats_retention_days = self._int(env, "STATS_RETENTION_DAYS", 90, 1, 3650)
+        self.access_log_max_mb = self._int(env, "ACCESS_LOG_MAX_MB", 50, 1, 10240)
         self.cert_validity_days = self._int(env, "CERT_VALIDITY_DAYS", 365, 1, 3650)
         self.renew_before_days = self._int(env, "RENEW_BEFORE_DAYS", 30, 1, 3650)
         self.renew_check_hours = self._int(env, "RENEW_CHECK_HOURS", 12, 1, 24 * 30)

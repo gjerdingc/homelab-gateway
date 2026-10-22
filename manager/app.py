@@ -18,6 +18,7 @@ import traefik_config as tc
 from config import Config
 from renewer import Renewer
 from service import ApplyError, Manager
+from stats import Stats, StatsCollector
 from traefik_api import TraefikAPI, describe
 
 DOCS_COMPOSE_SNIPPET = """services:
@@ -66,11 +67,14 @@ def create_app(env=None, start_background=True):
     api = TraefikAPI(config.traefik_api_url)
     manager = Manager(config, ca, ca_error, store, actions, api)
     renewer = Renewer(manager)
+    stats = Stats(config.data_dir, config.access_log_path, config.stats_retention_days,
+                  config.access_log_max_mb * 1024 * 1024)
+    collector = StatsCollector(stats)
 
     app = Flask(__name__)
     app.secret_key = _secret_key(config.data_dir)
     app.config.update(MAX_CONTENT_LENGTH=256 * 1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
-    app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer}
+    app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats}
     app.jinja_env.filters["days_left"] = days_left
     app.jinja_env.filters["expiry_class"] = expiry_class
 
@@ -292,6 +296,26 @@ def create_app(env=None, start_background=True):
         return send_file(config.root_ca_path, mimetype="application/x-x509-ca-cert", as_attachment=True,
                          download_name="root_ca.crt")
 
+    @app.get("/usage")
+    def usage():
+        try:
+            days = int(request.args.get("days", 30))
+        except ValueError:
+            days = 30
+        days = days if days in (7, 30, 90) else 30
+        days = min(days, config.stats_retention_days)
+        return render_template("usage.html", report=stats.report(days), days=days, stats=stats,
+                               log_path=config.access_log_path)
+
+    @app.post("/usage/refresh")
+    def usage_refresh():
+        count = stats.ingest()
+        if stats.last_error:
+            flash(f"Could not read the access log: {stats.last_error}", "error")
+        else:
+            flash(f"Read {count} new log lines.", "success")
+        return redirect(url_for("usage", days=request.form.get("days", 30)))
+
     @app.get("/log")
     def log_page():
         return render_template("log.html", lines=actions.tail(200))
@@ -303,5 +327,6 @@ def create_app(env=None, start_background=True):
     if start_background:
         manager.startup()
         renewer.start()
+        collector.start()
     return app
 

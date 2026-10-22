@@ -34,13 +34,14 @@ Killing the manager does not affect traffic: Traefik only reads the files the ma
 |---|---|
 | `/opt/traefik/dynamic` | Generated config. `_core.yml` and `app-*.yml` belong to the manager. **`manual-*.yml` is yours** and is never touched. |
 | `/opt/traefik/certs` | Issued certs and keys, one folder per app. Current and previous pair are kept. |
-| `/opt/traefik/manager` | `apps.yml` (source of truth), `archive/` (deleted apps), `manager.log`. Back this up. |
+| `/opt/traefik/manager` | `apps.yml` (source of truth), `archive/` (deleted apps), `manager.log`, `stats.json` (usage). Back this up. |
+| `/opt/traefik/logs` | Traefik's JSON access log, read by the manager for the Usage page. |
 | `/home/christian/pki/intermediate` | Intermediate cert and encrypted key, mounted read-only into the manager only. |
 | `/home/christian/pki/root/root_ca.crt` | Root **certificate** only (single file mount). The root key is offline and never mounted. |
 
 ## Deploy (Portainer CE)
 
-1. Prepare the folders: `sudo mkdir -p /opt/traefik/{dynamic,certs,manager}`
+1. Prepare the folders: `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs}`
 2. Make sure the DNS record `traefik.gjecorp.net -> 10.0.0.250` exists.
 3. In Portainer: **Stacks > Add stack > Repository**. Repository `https://github.com/gjerdingc/traefik-lab-lb`, compose path `docker-compose.yml`.
 4. Add these under **Environment variables**:
@@ -58,7 +59,8 @@ Killing the manager does not affect traffic: Traefik only reads the files the ma
 
 Optional: `PROXY_NETWORK` (`proxy`), `DASHBOARD_ENABLED` (`true`), `CERT_VALIDITY_DAYS` (`365`),
 `RENEW_BEFORE_DAYS` (`30`), `RENEW_CHECK_HOURS` (`12`), `KEY_TYPE` (`rsa-2048` or `ec-p256`),
-`BASIC_AUTH_USERS` (htpasswd entries, e.g. from `htpasswd -nB me`), `TRAEFIK_API_URL`, `TRAEFIK_HTTPS_PORT`.
+`BASIC_AUTH_USERS` (htpasswd entries, e.g. from `htpasswd -nB me`), `TRAEFIK_API_URL`, `TRAEFIK_HTTPS_PORT`,
+`STATS_RETENTION_DAYS` (`90`), `ACCESS_LOG_MAX_MB` (`50`).
 
 5. Deploy. Use **Pull and redeploy** to update later; the manager image is rebuilt each time.
 6. Open `https://traefik.gjecorp.net`. If it does not load, use `http://10.0.0.250:8090` and look at **Status** and **Log**.
@@ -69,7 +71,7 @@ Install the root certificate on your devices (download it from **Status**) so br
 
 1. Check the existing routes in `/opt/traefik` and that both apps are on the network: `docker network inspect proxy`.
 2. Back up: `sudo mv /opt/traefik /opt/traefik.old-$(date +%F)`
-3. `sudo mkdir -p /opt/traefik/{dynamic,certs,manager}`
+3. `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs}`
 4. Stop and remove the old Traefik container/stack in Portainer (this frees 80/443).
 5. Deploy the new stack (above).
 6. In the GUI, add the existing apps:
@@ -108,6 +110,20 @@ Hand-written config goes in `/opt/traefik/dynamic/manual-<name>.yml`. A router t
 ## Renewal
 
 Every `RENEW_CHECK_HOURS` the manager renews certs with fewer than `RENEW_BEFORE_DAYS` days left. A cert already limited by the intermediate's own expiry is not renewed repeatedly. Results are on **Status**; failures show as a red banner on every page.
+
+## Usage statistics
+
+The **Usage** page shows, per app, for the last 7, 30 or 90 days:
+
+- **Page views:** successful GET requests for pages, not files or API calls (`/static/`, `/api/`, anything with a file extension except `.html`). Approximate.
+- **Visitors:** distinct client IP addresses per day.
+- **Requests, errors (5xx) and when the app was last used**, plus a daily chart and the top pages per app.
+
+Traefik writes a JSON access log to `/opt/traefik/logs/access.log`. The manager reads new lines every 5 minutes (or when you press **Refresh**) and keeps daily totals in `/data/stats.json` for `STATS_RETENTION_DAYS` days. When the log grows past `ACCESS_LOG_MAX_MB`, the manager empties it once everything in it has been counted.
+
+Privacy: the totals keep client IPs only as salted hashes, but the raw access log contains IPs until it is emptied. Lower `ACCESS_LOG_MAX_MB` to keep less.
+
+Traefik's access log now goes to that file instead of the container output, so it no longer shows in Portainer's container logs.
 
 ## Troubleshooting
 

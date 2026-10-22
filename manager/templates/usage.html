@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Usage - Traefik Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Usage</h1>
+    <p class="muted">From Traefik's access log. Page views are approximate.{% if report.updated %} Updated <span class="mono">{{ report.updated }}</span>.{% endif %}</p>
+  </div>
+  <div class="actions period">
+    {% for d in (7, 30, 90) %}<a class="btn btn-small{% if d == days %} btn-primary{% endif %}" href="{{ url_for('usage', days=d) }}">{{ d }} days</a>{% endfor %}
+    <form method="post" action="{{ url_for('usage_refresh') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="days" value="{{ days }}"><button class="btn btn-small" type="submit">Refresh</button></form>
+  </div>
+</div>
+
+{% if not stats.log_exists %}
+<div class="alert alert-info">No access log yet at <span class="mono">{{ log_path }}</span>. It appears after Traefik has served its first request with JSON access logging enabled.</div>
+{% endif %}
+{% if stats.last_error %}<div class="alert alert-error">Could not read the access log: {{ stats.last_error }}</div>{% endif %}
+
+<section class="card">
+  <h2>Page views per day, all apps</h2>
+  {% if report.peak %}
+  <div class="bars" role="img" aria-label="Page views per day for the last {{ days }} days">
+    <span class="bars-max mono">{{ report.peak }}</span>
+    {% for d in report.daily %}
+      <span class="bar" style="height: {{ (100 * d.pages / report.peak) | round(1) }}%" title="{{ d.day }}: {{ d.pages }} page views" tabindex="0"></span>
+    {% endfor %}
+  </div>
+  <div class="bars-axis mono"><span>{{ report.daily[0].day }}</span><span>{{ report.daily[-1].day }}</span></div>
+  {% else %}
+  <p class="muted">No page views in this period.</p>
+  {% endif %}
+</section>
+
+<section class="card table-card">
+<table class="usage-table">
+  <thead><tr><th>App</th><th>Page views</th><th>Visitors</th><th class="hide-sm">Requests</th><th>Errors</th><th class="hide-sm">Last seen</th></tr></thead>
+  <tbody>
+  {% for r in report.rows %}
+    <tr>
+      <td data-label="App" class="mono">{{ r.app }}</td>
+      <td data-label="Page views">{{ r.pages }}</td>
+      <td data-label="Visitors">{{ r.visitors }}</td>
+      <td data-label="Requests" class="hide-sm">{{ r.requests }}</td>
+      <td data-label="Errors">{% if r.errors %}<span class="badge badge-err">{{ r.errors }}</span>{% else %}0{% endif %}</td>
+      <td data-label="Last seen" class="mono nowrap hide-sm">{{ r.last or '-' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="empty">No requests recorded in the last {{ days }} days.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+
+{% if report.rows %}
+<section class="card">
+  <h2>Top pages</h2>
+  {% for r in report.rows if r.top_paths %}
+  <details>
+    <summary><span class="mono">{{ r.app }}</span> <span class="muted">· {{ r.pages }} page views</span></summary>
+    <dl class="kv top-paths">
+      {% for path, n in r.top_paths %}<dt class="mono">{{ path }}</dt><dd>{{ n }}</dd>{% endfor %}
+    </dl>
+  </details>
+  {% endfor %}
+  <p class="help">Visitors are distinct client IP addresses per day, stored only as salted hashes. Errors are 5xx server responses.</p>
+</section>
+{% endif %}
+{% endblock %}

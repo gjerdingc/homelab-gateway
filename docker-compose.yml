@@ -11,7 +11,10 @@ services:
       - "443:443"
     command:
       - --log.level=INFO
+      # JSON access log in a file; the manager reads it for the Usage page
       - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.filepath=/var/log/traefik/access.log
       - --ping=true
       - --api.dashboard=true
       # The API listens on :8080 inside the container. That port is NOT published to the
@@ -29,6 +32,7 @@ services:
     volumes:
       - /opt/traefik/dynamic:/etc/traefik/dynamic:ro
       - /opt/traefik/certs:/etc/traefik/certs:ro
+      - /opt/traefik/logs:/var/log/traefik
       # Only the root CERTIFICATE. Traefik never sees the intermediate key.
       - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
     environment:
@@ -66,10 +70,14 @@ services:
       RENEW_CHECK_HOURS: ${RENEW_CHECK_HOURS:-12}
       KEY_TYPE: ${KEY_TYPE:-rsa-2048}
       BASIC_AUTH_USERS: ${BASIC_AUTH_USERS:-}
+      STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
+      ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
     volumes:
       - /opt/traefik/dynamic:/etc/traefik/dynamic
       - /opt/traefik/certs:/etc/traefik/certs
       - /opt/traefik/manager:/data
+      # Read for usage stats, and truncated by the manager once it passes ACCESS_LOG_MAX_MB
+      - /opt/traefik/logs:/var/log/traefik
       # Intermediate cert + encrypted key, read-only. The root key is offline and not mounted.
       - /home/christian/pki/intermediate:/pki/intermediate:ro
       - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro

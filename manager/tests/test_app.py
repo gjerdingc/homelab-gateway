@@ -24,7 +24,7 @@ def token(client, path="/apps/new"):
 
 def test_pages_render(client):
     client.tm["manager"].startup()
-    for path in ("/", "/apps/new", "/status", "/log", "/healthz"):
+    for path in ("/", "/apps/new", "/status", "/log", "/healthz", "/usage", "/usage?days=7", "/usage?days=bad"):
         assert client.get(path).status_code == 200, path
     assert client.get("/apps/nope").status_code == 404
     assert client.get("/status/root_ca.crt").status_code == 200
@@ -78,3 +78,17 @@ def test_config_errors_show_banner_and_block_changes(tmp_path, pki_session):
     html = c.get("/").get_data(as_text=True)
     assert "LAN_CIDRS" in html and "alert alert-error" in html
     assert c.get("/healthz").json == {"ok": True, "ready": False}
+
+
+def test_usage_page_shows_counts_from_the_log(client, env):
+    import json, datetime
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(env["ACCESS_LOG_PATH"], "w") as f:
+        for path in ("/", "/x", "/static/a.css"):
+            f.write(json.dumps({"RouterName": "edl-self-service@file", "RequestPath": path, "DownstreamStatus": 200,
+                                "RequestMethod": "GET", "ClientHost": "10.0.0.9", "StartUTC": now}) + "\n")
+    r = client.post("/usage/refresh", data={"csrf_token": token(client, "/usage"), "days": "7"})
+    assert r.status_code == 302 and "days=7" in r.headers["Location"]
+    html = client.get("/usage?days=7").get_data(as_text=True)
+    assert "edl-self-service" in html and "Read 3 new log lines" in html
+    assert 'data-label="Page views">2<' in html and 'data-label="Errors">0<' in html

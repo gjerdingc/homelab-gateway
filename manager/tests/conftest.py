@@ -68,7 +68,7 @@ def make_env(tmp_path, pki_paths, **overrides):
         "TM_ROOT_CA_PATH": pki_paths["root"],
         "MANAGER_FQDN": "traefik.gjecorp.net", "ALLOWED_DOMAINS": "gjecorp.net", "LAN_CIDRS": "10.0.0.0/24",
         "CA_CERT_FILE": "intermediate_ca.crt", "CA_KEY_FILE": "intermediate_ca_key", "CA_KEY_PASSWORD": PASSWORD,
-        "PI_IP": "10.0.0.250",
+        "PI_IP": "10.0.0.250", "ACCESS_LOG_PATH": str(tmp_path / "access.log"),
     }
     env.update(overrides)
     return env

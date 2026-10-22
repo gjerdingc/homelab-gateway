@@ -64,7 +64,8 @@ class Stack:
             [TRAEFIK_BIN, "--log.level=DEBUG", "--api.dashboard=true", "--api.insecure=true",
              f"--entrypoints.traefik.address=127.0.0.1:{self.api_port}",
              f"--entrypoints.websecure.address=127.0.0.1:{self.https}", "--entrypoints.websecure.http.tls=true",
-             f"--providers.file.directory={env['TM_DYNAMIC_DIR']}", "--providers.file.watch=true", "--ping=true"],
+             f"--providers.file.directory={env['TM_DYNAMIC_DIR']}", "--providers.file.watch=true", "--ping=true",
+             "--accesslog=true", "--accesslog.format=json", f"--accesslog.filepath={env['ACCESS_LOG_PATH']}"],
             stdout=open(tmp_path / "traefik.log", "w"), stderr=subprocess.STDOUT)
         for _ in range(100):
             try:
@@ -250,3 +251,24 @@ def test_edit_rejected_by_traefik_is_rolled_back(stack, monkeypatch):
     assert m.get("demo")["backend_url"] == backend_url
     stack.until(lambda: stack.get("demo.gjecorp.net")[0] == 200)
     assert m.api.router("demo")["status"] == "enabled"
+
+
+def test_usage_stats_from_real_access_log(stack):
+    from stats import Stats
+    m = stack.manager
+    m.startup()
+    backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+    m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url})
+    for path in ("/", "/reports", "/reports?page=2", "/static/app.css"):
+        assert stack.get("demo.gjecorp.net", path)[0] == 200
+    stack.get("traefik.gjecorp.net", "/")
+    stats = Stats(m.config.data_dir, stack.env["ACCESS_LOG_PATH"])
+    def logged():
+        stats.ingest()
+        rows = {r["app"]: r for r in stats.report(1)["rows"]}
+        return rows if rows.get("demo", {}).get("requests") == 4 and "traefik" in rows else None
+    rows = stack.until(logged)
+    demo = rows["demo"]
+    assert (demo["requests"], demo["pages"], demo["visitors"]) == (4, 3, 1)
+    assert dict(demo["top_paths"]) == {"/reports": 2, "/": 1}
+    assert rows["traefik"]["pages"] == 1

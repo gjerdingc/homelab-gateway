@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Log - Traefik Manager{% endblock %}
+{% block content %}
+<h1>Log</h1>
+<p class="hint">Last {{ lines | length }} actions, newest first.</p>
+<pre class="log">{% for l in lines %}{{ l }}
+{% else %}Nothing logged yet.{% endfor %}</pre>
+{% endblock %}

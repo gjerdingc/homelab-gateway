@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import expiry %}
+{% block content %}
+<div class="head"><h1>Apps</h1><a class="btn primary" href="{{ url_for('app_new') }}">Add app</a></div>
+{% if api_error %}<div class="banner warn">Traefik API not reachable, so router status is unknown: {{ api_error }}</div>{% endif %}
+<table class="stack">
+  <thead><tr><th>App</th><th>FQDN</th><th>Backend</th><th>Certificate</th><th>Traefik</th></tr></thead>
+  <tbody>
+  {% for a in apps %}
+    {% set rname = 'traefik-manager' if a.reserved else a.slug %}
+    {% set r = routers.get(rname) %}
+    <tr>
+      <td data-label="App"><a href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if a.reserved %} <span class="pill muted">system</span>{% endif %}</td>
+      <td data-label="FQDN"><a href="https://{{ a.fqdn }}/">{{ a.fqdn }}</a></td>
+      <td data-label="Backend"><code>{{ a.backend_url }}</code></td>
+      <td data-label="Certificate">{{ expiry(a.cert) }}</td>
+      <td data-label="Traefik">
+        {% if not a.enabled %}<span class="pill muted">disabled</span>
+        {% elif api_error %}<span class="pill muted">unknown</span>
+        {% elif r and r.status == 'enabled' %}<span class="pill ok">enabled</span>
+        {% elif r %}<span class="pill bad">{{ r.status }}</span>
+        {% else %}<span class="pill bad">not loaded</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">No apps yet. <a href="{{ url_for('app_new') }}">Add the first one.</a></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

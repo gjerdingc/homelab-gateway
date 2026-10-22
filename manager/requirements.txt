@@ -1,0 +1,6 @@
+flask
+pyyaml
+cryptography
+requests
+gunicorn
+pytest

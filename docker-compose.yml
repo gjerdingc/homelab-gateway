@@ -1,0 +1,82 @@
+# Portainer stack: Repository gjerdingc/traefik-lab-lb, compose path docker-compose.yml
+# Environment variables are set under the stack's Environment variables in Portainer
+# (see README.md for the full list and example values).
+services:
+  traefik:
+    image: traefik:v3.7.16
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - --log.level=INFO
+      - --accesslog=true
+      - --ping=true
+      - --api.dashboard=true
+      # The API listens on :8080 inside the container. That port is NOT published to the
+      # host, so only containers on the proxy network (the manager) can reach it.
+      - --api.insecure=true
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      # Trust internal-CA-signed HTTPS backends
+      - --serversTransport.rootCAs=/pki/root_ca.crt
+    volumes:
+      - /opt/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /opt/traefik/certs:/etc/traefik/certs:ro
+      # Only the root CERTIFICATE. Traefik never sees the intermediate key.
+      - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+    environment:
+      TZ: Europe/Oslo
+    networks: [proxy]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  traefik-manager:
+    build: ./manager
+    image: traefik-manager:latest
+    # Rebuild on every deploy, so "Pull and redeploy" picks up changes from GitHub
+    pull_policy: build
+    container_name: traefik-manager
+    restart: unless-stopped
+    ports:
+      # Break-glass access that does not go through Traefik: http://<pi-ip>:8090
+      # Not protected by the LAN-only middleware, so keep it on the LAN.
+      - "8090:8000"
+    environment:
+      TZ: Europe/Oslo
+      MANAGER_FQDN: ${MANAGER_FQDN}
+      DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
+      ALLOWED_DOMAINS: ${ALLOWED_DOMAINS}
+      LAN_CIDRS: ${LAN_CIDRS}
+      CA_CERT_FILE: ${CA_CERT_FILE:-intermediate_ca.crt}
+      CA_KEY_FILE: ${CA_KEY_FILE:-intermediate_ca_key}
+      CA_KEY_PASSWORD: ${CA_KEY_PASSWORD}
+      PI_IP: ${PI_IP:-}
+      CERT_VALIDITY_DAYS: ${CERT_VALIDITY_DAYS:-365}
+      RENEW_BEFORE_DAYS: ${RENEW_BEFORE_DAYS:-30}
+      RENEW_CHECK_HOURS: ${RENEW_CHECK_HOURS:-12}
+      KEY_TYPE: ${KEY_TYPE:-rsa-2048}
+      BASIC_AUTH_USERS: ${BASIC_AUTH_USERS:-}
+    volumes:
+      - /opt/traefik/dynamic:/etc/traefik/dynamic
+      - /opt/traefik/certs:/etc/traefik/certs
+      - /opt/traefik/manager:/data
+      # Intermediate cert + encrypted key, read-only. The root key is offline and not mounted.
+      - /home/christian/pki/intermediate:/pki/intermediate:ro
+      - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+    networks: [proxy]
+    depends_on: [traefik]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

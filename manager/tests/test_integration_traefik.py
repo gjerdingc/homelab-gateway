@@ -143,7 +143,7 @@ def test_full_lifecycle_against_real_traefik(stack):
 
     # Add an app: reachable over HTTPS with the new cert, Host header passed through.
     backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
-    result = m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url})
+    result = m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external", "backend_url": backend_url})
     assert result.verified, result.detail
     status, body, serial = stack.get("demo.gjecorp.net")
     assert status == 200 and "app-backend host=demo.gjecorp.net" in body
@@ -157,7 +157,7 @@ def test_full_lifecycle_against_real_traefik(stack):
     assert checks.backend_check(backend_url)["status"] == "ok"
 
     # New SANs mean a new cert, served without restarting Traefik.
-    m.update_app("demo", {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url,
+    m.update_app("demo", {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external", "backend_url": backend_url,
                           "extra_sans": "demo2.gjecorp.net"})
     second = m.get("demo")["cert"]["serial"]
     assert second != first
@@ -223,7 +223,7 @@ def test_killing_the_manager_does_not_affect_traffic(stack):
     m = stack.manager
     m.startup()
     backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
-    m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url})
+    m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external", "backend_url": backend_url})
     del m, stack.manager  # nothing from the manager is involved in serving requests
     assert stack.get("demo.gjecorp.net")[0] == 200
 
@@ -233,7 +233,7 @@ def test_edit_rejected_by_traefik_is_rolled_back(stack, monkeypatch):
     m = stack.manager
     m.startup()
     backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
-    form = {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url}
+    form = {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external", "backend_url": backend_url}
     m.create_app(form)
     before = open(os.path.join(m.config.dynamic_dir, "app-demo.yml")).read()
 
@@ -258,7 +258,7 @@ def test_usage_stats_from_real_access_log(stack):
     m = stack.manager
     m.startup()
     backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
-    m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "backend_url": backend_url})
+    m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external", "backend_url": backend_url})
     for path in ("/", "/reports", "/reports?page=2", "/static/app.css"):
         assert stack.get("demo.gjecorp.net", path)[0] == 200
     stack.get("traefik.gjecorp.net", "/")
@@ -272,3 +272,46 @@ def test_usage_stats_from_real_access_log(stack):
     assert (demo["requests"], demo["pages"], demo["visitors"]) == (4, 3, 1)
     assert dict(demo["top_paths"]) == {"/reports": 2, "/": 1}
     assert rows["traefik"]["pages"] == 1
+
+
+def https_backend(tmp_path, body):
+    """A backend serving HTTPS with a self-signed certificate, like Portainer or a firewall UI."""
+    import datetime as dt
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "self-signed")])
+    now = dt.datetime.now(dt.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now - dt.timedelta(days=1))
+            .not_valid_after(now + dt.timedelta(days=1)).sign(key, hashes.SHA256()))
+    crt, k = tmp_path / "self.crt", tmp_path / "self.key"
+    crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    k.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                    serialization.NoEncryption()))
+    srv = backend(body)
+    srv.shutdown()
+    srv.server_close()
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), srv.RequestHandlerClass)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(crt, k)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_external_https_service_with_self_signed_cert(stack, tmp_path):
+    m = stack.manager
+    m.startup()
+    srv = https_backend(tmp_path, "external-ui")
+    try:
+        form = {**FORM, "slug": "fw", "fqdn": "fw.gjecorp.net", "kind": "external",
+                "backend_url": f"https://127.0.0.1:{srv.server_port}"}
+        assert m.create_app(form).verified
+        assert stack.get("fw.gjecorp.net")[0] == 500  # Traefik refuses the untrusted backend cert
+        assert m.update_app("fw", {**form, "backend_tls_skip_verify": "on"}).verified
+        status, body, _ = stack.get("fw.gjecorp.net")
+        assert status == 200 and "external-ui" in body
+    finally:
+        srv.shutdown()

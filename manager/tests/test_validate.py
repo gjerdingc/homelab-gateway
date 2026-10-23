@@ -113,3 +113,15 @@ def test_wait_for_router_pending_when_marker_never_loads():
     api.middleware = lambda name: None
     api.router = lambda slug: {"status": "enabled"}
     assert api.wait_for_router("app", "tm-rev-app-1", timeout=0.05, interval=0)[0] == "pending"
+
+
+def test_kind_defaults_to_internal_and_is_validated():
+    assert v({})[0]["kind"] == "internal"
+    assert "kind" in v({"kind": "sideways"})[1]
+
+
+def test_internal_apps_need_a_container_name_not_an_ip():
+    fields, errors = v({"backend_url": "http://10.0.0.5:80"})
+    assert "External service" in errors["backend_url"]
+    assert not v({"kind": "external", "backend_url": "https://10.0.0.5:443"})[1]
+    assert not v({"kind": "external", "backend_url": "http://pihole.lan:80"})[1]

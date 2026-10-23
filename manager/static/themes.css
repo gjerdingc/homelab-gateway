@@ -1,0 +1,98 @@
+/* Extra themes and the theme menu, on top of theme.css. Load this file after it.
+
+   Themes, set as data-theme on <html>:
+     light     theme.css light mode
+     dark      theme.css dark mode (the original, near-black)
+     mist      dark, blue-grey, lighter than "dark"
+     graphite  dark, neutral grey, lighter than "dark"
+     terminal  just for fun: green Consolas text on neutral dark grey, no brand colours
+
+   Mist and Graphite keep the brand rules (see BRAND.md); only the neutral greys and
+   the purple's lightness differ, so the purple stays readable on lighter surfaces.
+   Terminal is the one exception to BRAND.md: green is used only for text and icons,
+   never for backgrounds, borders or lines. */
+
+/* Theme menu (the button at the top right; markup in example.html) */
+.theme-menu { position: relative; }
+.theme-options { position: absolute; right: 0; top: calc(100% + .4rem); z-index: 20; min-width: 160px; padding: .35rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 30px rgba(0, 0, 0, .25); }
+.theme-options[hidden] { display: none; }
+.theme-options label { display: grid; grid-template-columns: auto 1fr; column-gap: .55rem; align-items: center; padding: .45rem .55rem; border-radius: 7px; cursor: pointer; }
+.theme-options label:hover { background: var(--surface-2); }
+
+:root[data-theme="mist"],
+:root[data-theme="graphite"] {
+  --primary-text: #16091d;
+  --accent: #ee6fc6;
+  --ok-bg: #1d3526; --ok-text: #8ddca3; --ok-border: #2f5c3b;
+  --warn-bg: #3a2e18; --warn-text: #f3cb80; --warn-border: #66501f;
+  --err-bg: #3d1f21; --err-text: #f5a6a6; --err-border: #6a3033;
+  --focus: rgba(238, 111, 198, 0.4);
+  --code-bg: #1b1f25; --code-text: #e3e8ef; --code-border: #4a5260;
+  --shadow: none;
+  color-scheme: dark;
+}
+
+/* Mist: blue-grey */
+:root[data-theme="mist"] {
+  --bg: #2a2f37;
+  --surface: #353b44;
+  --surface-2: #3f4650;
+  --border: #525a66;
+  --text: #edf0f4;
+  --muted: #b8c0cb;
+  --primary: #dcaaef;
+  --primary-hover: #e6c0f4;
+}
+
+/* Graphite: neutral grey */
+:root[data-theme="graphite"] {
+  --bg: #2b2b2f;
+  --surface: #36363b;
+  --surface-2: #404046;
+  --border: #54545b;
+  --text: #eeeef0;
+  --muted: #babac2;
+  --primary: #dcaaef;
+  --primary-hover: #e6c0f4;
+}
+
+/* Terminal: green Consolas text on neutral dark grey. Not Advania-branded; green is
+   used only for text and icons, never for backgrounds, borders or lines. */
+:root[data-theme="terminal"] {
+  --accent-line: #3a3a3e;
+  --bg: #19191b; --surface: #202022; --surface-2: #29292c; --border: #3a3a3e;
+  --text: #33ff66; --muted: #26c056;
+  --primary: #33ff66; --primary-hover: #9dffb5; --primary-text: #33ff66; --accent: #6a6a70;
+  --focus: rgba(255, 255, 255, 0.16);
+  --ok-bg: #29292c; --ok-text: #9dffb5; --ok-border: #3a3a3e;
+  --warn-bg: #29292c; --warn-text: #ffb000; --warn-border: #3a3a3e;
+  --err-bg: #29292c; --err-text: #ff6b6b; --err-border: #3a3a3e;
+  --shadow: none; --mono: Consolas, "DejaVu Sans Mono", "Lucida Console", monospace;
+  color-scheme: dark;
+  accent-color: #8a8a90;
+}
+:root[data-theme="terminal"] body,
+:root[data-theme="terminal"] input, :root[data-theme="terminal"] select, :root[data-theme="terminal"] button {
+  font-family: var(--mono); letter-spacing: 0;
+}
+:root[data-theme="terminal"] body { font-size: 14.5px; text-shadow: 0 0 6px rgba(51, 255, 102, .25); }
+/* Faint CRT scanlines (black, no tint) */
+:root[data-theme="terminal"] body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 100;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px);
+}
+:root[data-theme="terminal"] #brand-grad stop { stop-color: #33ff66; }
+:root[data-theme="terminal"] .card, :root[data-theme="terminal"] .theme-options, :root[data-theme="terminal"] dialog { border-radius: 4px; }
+/* Buttons stay grey; only their text is green */
+:root[data-theme="terminal"] .btn-primary { background: var(--surface-2); border-color: var(--border); color: var(--primary); }
+:root[data-theme="terminal"] .btn-primary:hover { background: #333337; color: var(--primary-hover); }
+:root[data-theme="terminal"] .btn-danger { background: var(--surface-2); border-color: var(--border); color: var(--err-text); }
+:root[data-theme="terminal"] .card > h2::before { content: "~$"; width: auto; height: auto; margin-right: .5rem; background: none; color: var(--muted); }
+:root[data-theme="terminal"] a:hover { color: var(--primary-hover); text-decoration: underline; text-underline-offset: 3px; }
+:root[data-theme="terminal"] ::placeholder { font-style: normal; color: var(--muted); opacity: .8; }
+:root[data-theme="terminal"] #search { caret-color: #33ff66; }
+:root[data-theme="terminal"] .brand-tag::after { content: "_"; animation: terminal-blink 1s steps(1) infinite; }
+@keyframes terminal-blink { 50% { opacity: 0; } }
+/* Code and log blocks: neutral background, no purple titles */
+:root[data-theme="terminal"] { --code-bg: #141416; --code-text: #33ff66; --code-border: #3a3a3e; }
+:root[data-theme="terminal"] pre.code .l-title { color: #9dffb5; }

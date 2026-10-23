@@ -7,6 +7,7 @@
     <h1><span class="mono">{{ a.slug }}</span></h1>
     <p class="muted">
       {% if a.reserved %}<span class="badge badge-muted">system</span> {% endif %}
+      {% if a.kind == 'external' %}<span class="badge badge-muted">external service</span> {% endif %}
       {% if not a.enabled %}<span class="badge badge-muted">disabled</span> {% endif %}
       <span class="mono">{{ a.fqdn }}</span> → <span class="mono">{{ a.backend_url }}</span>
     </p>
@@ -17,6 +18,7 @@
 <section class="card">
   <h2>Config</h2>
   <dl class="kv">
+    <dt>Type</dt><dd>{{ 'External service, outside the proxy network' if a.kind == 'external' else 'Internal app on the proxy network' }}</dd>
     <dt>FQDN</dt><dd class="mono">{{ a.fqdn }}</dd>
     {% if a.extra_sans %}<dt>Extra names</dt><dd class="mono">{{ a.extra_sans | join(', ') }}</dd>{% endif %}
     <dt>Backend</dt><dd class="mono">{{ a.backend_url }}</dd>
@@ -70,10 +72,17 @@
     <form method="post" action="{{ url_for('app_renew', slug=a.slug) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Renew now</button></form>
     {% if cert %}<a class="btn" href="{{ url_for('app_fullchain', slug=a.slug) }}">Download fullchain.pem</a>{% endif %}
   </div>
-  <p class="help">The private key stays on the Pi and cannot be downloaded here.</p>
+  <p class="help">The private key stays on the host and cannot be downloaded here.</p>
 </section>
 
-{% if not a.reserved %}
+{% if a.kind == 'external' %}
+<section class="card">
+  <h2>How Traefik reaches it</h2>
+  <p class="help">Traefik connects to <span class="mono">{{ a.backend_url }}</span> from the container host, so the service must accept connections from the host's address. For a port published on this host, use the host's LAN IP rather than <span class="mono">localhost</span>.</p>
+  <p class="help">The service stays reachable at its own address too. To allow access only through the gateway, restrict it on the service itself or in the firewall.</p>
+  {% if a.backend_url.startswith('https://') and not a.backend_tls_skip_verify %}<p class="help">If it serves a self-signed certificate, edit the app and tick "Do not verify the backend's TLS certificate", or Traefik answers 500 Internal Server Error.</p>{% endif %}
+</section>
+{% elif not a.reserved %}
 <section class="card">
   <h2>Connect your app</h2>
   <p class="help">Put the container on the <span class="mono">proxy</span> network and drop any published ports. Traefik reaches it by container name.</p>

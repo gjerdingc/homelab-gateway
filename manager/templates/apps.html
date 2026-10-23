@@ -1,22 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import expiry %}
-{% block content %}
-<div class="page-head">
-  <div>
-    <h1>Apps</h1>
-    <p class="muted">Routes Traefik serves, with their certificates.</p>
-  </div>
-  <a class="btn btn-primary" href="{{ url_for('app_new') }}">Add app</a>
-</div>
-{% if api_error %}<div class="alert alert-warn">Traefik API not reachable, so router status is unknown: {{ api_error }}</div>{% endif %}
-<section class="card table-card">
-<table class="stack">
-  <thead><tr><th>App</th><th>FQDN</th><th>Backend</th><th>Certificate</th><th>Traefik</th></tr></thead>
-  <tbody>
-  {% for a in apps %}
+{% macro app_rows(list, empty, label="App") %}
+  {% for a in list %}
     {% set r = routers.get('traefik-manager' if a.reserved else a.slug) %}
     <tr>
-      <td data-label="App"><a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if a.reserved %} <span class="badge badge-muted">system</span>{% endif %}</td>
+      <td data-label="{{ label }}"><a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if a.reserved %} <span class="badge badge-muted">system</span>{% endif %}{% if a.kind == 'external' %}<svg class="ext-icon" width="13" height="13" viewBox="0 0 24 24" aria-label="external service" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></g></svg>{% endif %}</td>
       <td data-label="FQDN"><a class="mono" href="https://{{ a.fqdn }}/">{{ a.fqdn }}</a></td>
       <td data-label="Backend" class="mono">{{ a.backend_url }}</td>
       <td data-label="Certificate" class="nowrap">{{ expiry(a.cert) }}</td>
@@ -29,9 +17,39 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="5" class="empty">No apps yet. <a href="{{ url_for('app_new') }}">Add the first one.</a></td></tr>
+    <tr><td colspan="5" class="empty">{{ empty | safe }}</td></tr>
   {% endfor %}
-  </tbody>
-</table>
+{% endmacro %}
+{% block content %}
+{% set external = apps | selectattr('kind', 'equalto', 'external') | list %}
+{% set internal = apps | rejectattr('kind', 'equalto', 'external') | list %}
+<div class="page-head">
+  <div>
+    <h1>Apps</h1>
+    <p class="muted">Routes Traefik serves, with their certificates.</p>
+  </div>
+  <div class="actions head-actions">
+    <a class="btn btn-primary" href="{{ url_for('app_new') }}">Add app</a>
+    <a class="btn" href="{{ url_for('app_new', kind='external') }}">Add external service</a>
+  </div>
+</div>
+{% if api_error %}<div class="alert alert-warn">Traefik API not reachable, so router status is unknown: {{ api_error }}</div>{% endif %}
+
+<section class="card table-card kind-section">
+  <h2>Internal apps</h2>
+  <p class="help">Containers on the <span class="mono">proxy</span> network, reached by container name. No host ports.</p>
+  <table class="stack">
+    <thead><tr><th>App</th><th>FQDN</th><th>Backend</th><th>Certificate</th><th>Traefik</th></tr></thead>
+    <tbody>{{ app_rows(internal, 'No internal apps yet.') }}</tbody>
+  </table>
+</section>
+
+<section class="card table-card kind-section kind-external">
+  <h2>External services <span class="badge badge-muted">outside the proxy network</span></h2>
+  <p class="help">Other hosts, or ports published on this host, reached by IP address or host name. They stay reachable at their own address too.</p>
+  <table class="stack">
+    <thead><tr><th>Service</th><th>FQDN</th><th>Backend</th><th>Certificate</th><th>Traefik</th></tr></thead>
+    <tbody>{{ app_rows(external, label='Service', empty='No external services yet. <a href="' ~ url_for('app_new', kind='external') ~ '">Add one</a>, e.g. Pi-hole, Portainer or a firewall web UI.') }}</tbody>
+  </table>
 </section>
 {% endblock %}

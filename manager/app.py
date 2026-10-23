@@ -129,13 +129,15 @@ def create_app(env=None, start_background=True):
             abort(404)
         return a
 
-    def form_defaults():
-        return {"slug": "", "fqdn": "", "extra_sans": [], "backend_url": "http://", "backend_tls_skip_verify": False,
+    def form_defaults(kind="internal"):
+        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [],
+                "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
                 "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
-        return {"slug": f.get("slug", ""), "fqdn": f.get("fqdn", ""), "extra_sans": f.get("extra_sans", ""),
+        return {"slug": f.get("slug", ""), "kind": f.get("kind", "internal"), "fqdn": f.get("fqdn", ""),
+                "extra_sans": f.get("extra_sans", ""),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
@@ -165,7 +167,7 @@ def create_app(env=None, start_background=True):
     @app.route("/apps/new", methods=["GET", "POST"])
     def app_new():
         if request.method == "GET":
-            return render_form(form_defaults())
+            return render_form(form_defaults("external" if request.args.get("kind") == "external" else "internal"))
         try:
             result = manager.create_app(request.form)
         except ApplyError as exc:
@@ -305,7 +307,7 @@ def create_app(env=None, start_background=True):
         days = days if days in (7, 30, 90) else 30
         days = min(days, config.stats_retention_days)
         return render_template("usage.html", report=stats.report(days), days=days, stats=stats,
-                               log_path=config.access_log_path)
+                               log_path=config.access_log_path, external=manager.external_slugs())
 
     @app.post("/usage/refresh")
     def usage_refresh():

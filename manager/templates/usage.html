@@ -38,7 +38,7 @@
   <tbody>
   {% for r in report.rows %}
     <tr>
-      <td data-label="App" class="mono">{{ r.app }}</td>
+      <td data-label="App"><span class="mono">{{ r.app }}</span>{% if r.app in external %} <span class="badge badge-muted">external</span>{% endif %}</td>
       <td data-label="Page views">{{ r.pages }}</td>
       <td data-label="Visitors">{{ r.visitors }}</td>
       <td data-label="Requests" class="hide-sm">{{ r.requests }}</td>

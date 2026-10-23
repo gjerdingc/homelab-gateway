@@ -55,3 +55,6 @@ details summary { cursor: pointer; padding: .25rem 0; }
   .usage-table th { font-size: .66rem; letter-spacing: .03em; white-space: normal; }
   .usage-table td:first-child { white-space: normal; overflow-wrap: normal; }
 }
+/* Terminal theme: green is for text only, so the bars stay grey */
+:root[data-theme="terminal"] .bar { background: var(--accent); }
+:root[data-theme="terminal"] .bar:hover, :root[data-theme="terminal"] .bar:focus { background: #8a8a90; }

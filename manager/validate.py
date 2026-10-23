@@ -11,6 +11,9 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 # external: anything else Traefik can reach: another host, or a port published on this host.
 KINDS = ("internal", "external")
 RESERVED_SLUGS = {"_manager", "core", "manual"}
+# Optional start path: requests for "/" are redirected here (e.g. Pi-hole's "/admin/").
+# A strict character set keeps it safe to place in a Traefik regex replacement.
+START_PATH_RE = re.compile(r"^/[A-Za-z0-9._~/-]{0,199}$")
 BACKEND_HOST_RE = re.compile(r"^[A-Za-z0-9_]([A-Za-z0-9_.-]{0,251}[A-Za-z0-9_])?$")
 
 
@@ -128,6 +131,13 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
     if skip_verify and backend and not backend.startswith("https://"):
         errors["backend_tls_skip_verify"] = "Skip-verify only applies to https backends"
 
+    start_path = (form.get("start_path") or "").strip()
+    if start_path == "/":
+        start_path = ""
+    if start_path and (not START_PATH_RE.match(start_path) or "//" in start_path
+                       or any(seg in (".", "..") for seg in start_path.split("/"))):
+        errors["start_path"] = "Start path must look like /admin/ (letters, digits, - _ . ~ and /)"
+
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:
         errors["notes"] = "Notes are limited to 500 characters"
@@ -139,6 +149,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
         "extra_sans": sans,
         "backend_url": backend or (form.get("backend_url") or "").strip(),
         "backend_tls_skip_verify": skip_verify,
+        "start_path": start_path,
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
         "security_headers": bool(form.get("security_headers")),

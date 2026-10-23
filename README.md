@@ -117,6 +117,7 @@ Not everything is a container on the `proxy` network. Pi-hole, a firewall web UI
 - Many appliances serve a self-signed certificate. Tick **Do not verify the backend's TLS certificate**, otherwise Traefik answers 500.
 - The service stays reachable at its own address too, so Portainer keeps working on `:9443`. Restrict it on the service or the firewall if it should only be reachable through the gateway.
 - Internal apps must use a container name; an IP address is refused with a hint to choose External service.
+- Some web UIs live under a sub-path, e.g. Pi-hole at `/admin/`. Set **Start path** to `/admin/` and opening `https://pihole.gjecorp.net/` redirects there. Only the bare `/` is redirected; every other path reaches the service unchanged. This works for internal apps too.
 
 ## Renewal
 

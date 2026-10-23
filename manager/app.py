@@ -132,13 +132,14 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [],
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
+                "start_path": "", "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
         return {"slug": f.get("slug", ""), "kind": f.get("kind", "internal"), "fqdn": f.get("fqdn", ""),
                 "extra_sans": f.get("extra_sans", ""),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
+                "start_path": f.get("start_path", ""),
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
                 "security_headers": bool(f.get("security_headers"))}

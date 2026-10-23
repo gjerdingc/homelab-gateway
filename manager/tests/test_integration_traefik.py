@@ -315,3 +315,23 @@ def test_external_https_service_with_self_signed_cert(stack, tmp_path):
         assert status == 200 and "external-ui" in body
     finally:
         srv.shutdown()
+
+
+def test_start_path_redirects_root_to_sub_path(stack):
+    m = stack.manager
+    m.startup()
+    backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+    assert m.create_app({**FORM, "slug": "pihole", "fqdn": "pihole.gjecorp.net", "kind": "external",
+                         "backend_url": backend_url, "start_path": "/admin/"}).verified
+    ctx = ssl.create_default_context(cafile=stack.root)
+    with socket.create_connection(("127.0.0.1", stack.https), timeout=5) as raw:
+        with ctx.wrap_socket(raw, server_hostname="pihole.gjecorp.net") as tls:
+            tls.sendall(b"GET / HTTP/1.1\r\nHost: pihole.gjecorp.net\r\nConnection: close\r\n\r\n")
+            head = b""
+            while chunk := tls.recv(4096):
+                head += chunk
+    lines = head.split(b"\r\n\r\n", 1)[0].decode().split("\r\n")
+    assert lines[0].split()[1] == "302"
+    assert "location: https://pihole.gjecorp.net/admin/" in [l.lower() for l in lines]
+    status, body, _ = stack.get("pihole.gjecorp.net", "/admin/")  # sub-paths reach the backend unchanged
+    assert status == 200 and "app-backend" in body

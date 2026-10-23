@@ -92,3 +92,24 @@ def test_usage_page_shows_counts_from_the_log(client, env):
     html = client.get("/usage?days=7").get_data(as_text=True)
     assert "edl-self-service" in html and "Read 3 new log lines" in html
     assert 'data-label="Page views">2<' in html and 'data-label="Errors">0<' in html
+
+
+def test_external_services_are_listed_separately(client):
+    client.tm["manager"].startup()
+    html = client.get("/apps/new?kind=external").get_data(as_text=True)
+    assert "<h1>Add external service</h1>" in html and 'value="external" checked' in html
+    client.post("/apps/new", data={**FORM, "csrf_token": token(client)})
+    client.post("/apps/new", data={**FORM, "slug": "pihole", "fqdn": "pihole.gjecorp.net", "kind": "external",
+                                   "backend_url": "https://10.0.0.53:443", "csrf_token": token(client)})
+    page = client.get("/").get_data(as_text=True)
+    internal, external = page.split("<h2>Internal apps</h2>", 1)[1].split("<h2>External services", 1)
+    assert "grafana" in internal and "pihole" not in internal
+    assert "pihole" in external and "grafana" not in external
+    detail = client.get("/apps/pihole").get_data(as_text=True)
+    assert "How Traefik reaches it" in detail and "self-signed" in detail and "Connect your app" not in detail
+    assert "Connect your app" in client.get("/apps/grafana").get_data(as_text=True)
+
+
+def test_internal_app_with_ip_backend_is_refused_with_a_hint(client):
+    r = client.post("/apps/new", data={**FORM, "backend_url": "http://10.0.0.5:80", "csrf_token": token(client)})
+    assert r.status_code == 400 and b"choose External service" in r.data

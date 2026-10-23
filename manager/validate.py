@@ -7,6 +7,9 @@ from urllib.parse import urlparse
 from config import HOSTNAME_RE, in_domains
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+# internal: a container on the proxy network, reached by container name.
+# external: anything else Traefik can reach: another host, or a port published on this host.
+KINDS = ("internal", "external")
 RESERVED_SLUGS = {"_manager", "core", "manual"}
 BACKEND_HOST_RE = re.compile(r"^[A-Za-z0-9_]([A-Za-z0-9_.-]{0,251}[A-Za-z0-9_])?$")
 
@@ -60,6 +63,14 @@ def normalize_backend(url):
     return f"{p.scheme}://{host}:{port}", None
 
 
+def _is_ip(host):
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
 def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
     """Validate form data. existing_apps is the full list of app records.
 
@@ -101,9 +112,17 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
             field = "fqdn" if n == fqdn else "extra_sans"
             errors.setdefault(field, f"{n!r} is already used by app {taken[n]!r}")
 
+    kind = (form.get("kind") or "internal").strip()
+    if kind not in KINDS:
+        errors["kind"] = "Choose internal app or external service"
+        kind = "internal"
+
     backend, err = normalize_backend(form.get("backend_url"))
     if err:
         errors["backend_url"] = err
+    elif kind == "internal" and _is_ip(urlparse(backend).hostname):
+        errors["backend_url"] = ("Internal apps are reached by container name on the proxy network. "
+                                 "For an IP address, choose External service.")
 
     skip_verify = bool(form.get("backend_tls_skip_verify"))
     if skip_verify and backend and not backend.startswith("https://"):
@@ -115,6 +134,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
 
     fields = {
         "slug": slug,
+        "kind": kind,
         "fqdn": fqdn,
         "extra_sans": sans,
         "backend_url": backend or (form.get("backend_url") or "").strip(),

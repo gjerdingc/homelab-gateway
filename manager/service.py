@@ -98,6 +98,9 @@ class Manager:
     def user_apps(self):
         return [a for a in self.apps() if not a.get("reserved")]
 
+    def external_slugs(self):
+        return {a["slug"] for a in self.apps() if a.get("kind") == "external"}
+
     def manager_cert(self):
         rec = self.get(MANAGER_SLUG)
         return rec.get("cert") if rec else None
@@ -320,7 +323,8 @@ class Manager:
         rec = self.get(MANAGER_SLUG)
         now = st.now_iso()
         base = {
-            "slug": MANAGER_SLUG, "reserved": True, "fqdn": self.config.manager_fqdn, "extra_sans": [],
+            "slug": MANAGER_SLUG, "reserved": True, "kind": "internal",
+            "fqdn": self.config.manager_fqdn, "extra_sans": [],
             "backend_url": self.config.manager_backend, "backend_tls_skip_verify": False,
             "pass_host_header": True, "lan_only": True, "security_headers": False, "enabled": True,
             "notes": "Traefik Manager and dashboard (system entry)",

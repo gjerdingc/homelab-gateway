@@ -250,3 +250,24 @@ def test_overlapping_renewal_runs_renew_once(manager):
     manager.config.renew_before_days = 30  # what a second, overlapping run sees after the first finished
     second, _ = manager.renew_due()
     assert first == ["grafana"] and second == []
+
+
+def test_external_service_is_stored_and_listed(manager):
+    form = {**FORM, "slug": "pihole", "fqdn": "pihole.gjecorp.net", "kind": "external",
+            "backend_url": "https://10.0.0.53:443", "backend_tls_skip_verify": "on"}
+    manager.create_app(form)
+    app = manager.get("pihole")
+    assert app["kind"] == "external" and manager.external_slugs() == {"pihole"}
+    text = open(dyn(manager, "app-pihole.yml")).read()
+    assert "https://10.0.0.53:443" in text and "insecureSkipVerify: true" in text
+    manager.update_app("pihole", {**form, "kind": "internal", "backend_url": "http://pihole:80",
+                                  "backend_tls_skip_verify": ""})
+    assert manager.get("pihole")["kind"] == "internal" and manager.external_slugs() == set()
+
+
+def test_records_without_kind_count_as_internal(manager):
+    manager.create_app(FORM)
+    data = manager.store.load()
+    data["apps"][0].pop("kind")
+    manager.store.save(data)
+    assert manager.external_slugs() == set()

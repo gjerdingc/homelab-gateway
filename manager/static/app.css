@@ -58,3 +58,22 @@ details summary { cursor: pointer; padding: .25rem 0; }
 /* Terminal theme: green is for text only, so the bars stay grey */
 :root[data-theme="terminal"] .bar { background: var(--accent); }
 :root[data-theme="terminal"] .bar:hover, :root[data-theme="terminal"] .bar:focus { background: #8a8a90; }
+
+/* Apps page: internal apps and external services as separate cards.
+   External services get a dashed border, as outside-the-network items do in the diagrams. */
+.head-actions { margin-top: 0; }
+.kind-section > h2 { margin: 1.1rem 1.25rem .3rem; flex-wrap: wrap; }
+.kind-section > .help { margin: 0 1.25rem .9rem; }
+.kind-section + .kind-section { margin-top: 1.25rem; }
+.kind-external { border-style: dashed; }
+.kind-external > h2 .badge { font-weight: 550; margin-left: .5rem; }
+.ext-icon { vertical-align: -2px; margin-left: .3rem; color: var(--muted); }
+
+/* Add/edit form: the type choice */
+.kind-choice { border: 0; padding: 0; margin: 0 0 1rem; }
+.kind-choice legend { font-weight: 550; font-size: .9rem; margin-bottom: .4rem; padding: 0; }
+.kind-choice .kind-option { display: flex; gap: .6rem; align-items: flex-start; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: .5rem; cursor: pointer; font-weight: 400; }
+.kind-choice .kind-option input { margin-top: .25rem; flex: none; }
+.kind-option strong { display: block; font-weight: 600; }
+.kind-option .help { display: block; margin-top: .1rem; }
+.kind-choice .kind-option:has(input:checked) { border-color: var(--primary); }

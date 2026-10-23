@@ -27,7 +27,7 @@
 
   <rect width="1280" height="784" fill="#f5f6f8"/>
   <rect width="1280" height="4" fill="url(#accent)"/>
-  <text x="40" y="46" font-size="24" font-weight="700" fill="#1c2330">Internal App Gateway · technical design</text>
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#1c2330">Internal Tools Platform · technical design</text>
   <text x="40" y="72" font-size="14" fill="#5f6b7c">Data plane: how requests reach apps. Control plane: how routes and certificates are created, verified and renewed.</text>
 
   <!-- Left column -->

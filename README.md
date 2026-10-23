@@ -16,7 +16,7 @@ The design and acceptance criteria are in [SPEC.md](SPEC.md).
 | [Technical design](docs/hld-technical.svg) | Generic data and control plane, for deploying it elsewhere |
 | [This lab](docs/architecture-lab.svg) | This deployment: hosts, ports, folders and PKI |
 
-![Internal App Gateway concept](docs/hld-concept.svg)
+![Internal Tools Platform concept](docs/hld-concept.svg)
 
 ## What runs
 

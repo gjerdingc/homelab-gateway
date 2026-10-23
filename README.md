@@ -12,6 +12,7 @@ The design and acceptance criteria are in [SPEC.md](SPEC.md).
 | Diagram | For |
 |---|---|
 | [Concept](docs/hld-concept.svg) | One-page overview of the idea, for presenting it |
+| [Concept, host view](docs/hld-concept-host.svg) | The same overview, showing every component as a container on one host, managed by Portainer |
 | [Technical design](docs/hld-technical.svg) | Generic data and control plane, for deploying it elsewhere |
 | [This lab](docs/architecture-lab.svg) | This deployment: hosts, ports, folders and PKI |
 

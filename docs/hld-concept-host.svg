@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="800" viewBox="0 0 1240 800" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="accent" x1="0" x2="1"><stop offset="0" stop-color="#ae20c3"/><stop offset=".35" stop-color="#db31cf"/><stop offset=".65" stop-color="#ed38ad"/><stop offset="1" stop-color="#de5286"/></linearGradient>
+    <marker id="a-traffic" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6a0b8c"/></marker>
+    <marker id="a-mgmt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5f6b7c"/></marker>
+    <style>
+      .box { fill: #fff; stroke: #dde1e7; stroke-width: 1.2; }
+      .hero { fill: #fff; stroke: #6a0b8c; stroke-width: 1.6; }
+      .host { fill: #eceef2; stroke: #b8bfca; stroke-width: 1.4; }
+      .title { font-size: 16px; font-weight: 650; fill: #1c2330; }
+      .big { font-size: 19px; font-weight: 700; fill: #1c2330; }
+      .text { font-size: 13px; fill: #5f6b7c; }
+      .app { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; fill: #1c2330; }
+      .label { font-size: 12.5px; fill: #1c2330; font-weight: 600; }
+      .mlabel { font-size: 12.5px; fill: #5f6b7c; font-style: italic; }
+      .zone { fill: #f5f6f8; stroke: #b8bfca; stroke-width: 1.2; stroke-dasharray: 6 5; }
+      .zonetitle { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .06em; fill: #5f6b7c; font-weight: 600; }
+      .hosttitle { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; letter-spacing: .06em; fill: #1c2330; font-weight: 700; }
+      .traffic { stroke: #6a0b8c; stroke-width: 2.4; fill: none; marker-end: url(#a-traffic); }
+      .mgmt { stroke: #5f6b7c; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#a-mgmt); }
+      .tag { fill: #f1f2f5; stroke: #dde1e7; stroke-width: 1; }
+      .tagtext { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; fill: #5f6b7c; }
+      .lblbg { fill: #eceef2; }
+    </style>
+  </defs>
+
+  <rect width="1240" height="800" fill="#f5f6f8"/>
+  <rect width="1240" height="4" fill="url(#accent)"/>
+  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Internal App Gateway</text>
+  <text x="40" y="78" font-size="15" fill="#5f6b7c">One secure front door for every internal web app. All apps run as containers on one host, managed by Portainer.</text>
+
+  <!-- Outside the host -->
+  <rect x="40" y="186" width="200" height="110" rx="12" class="box"/>
+  <text x="60" y="216" class="title">Users</text>
+  <text x="60" y="240" class="text">Any browser on the</text>
+  <text x="60" y="258" class="text">internal network</text>
+  <text x="60" y="280" class="text">app.your-domain</text>
+
+  <rect x="40" y="398" width="200" height="80" rx="12" class="box"/>
+  <text x="60" y="428" class="title">Internal CA</text>
+  <text x="60" y="450" class="text">Company certificate</text>
+  <text x="60" y="467" class="text">authority</text>
+
+  <rect x="40" y="498" width="200" height="80" rx="12" class="box"/>
+  <text x="60" y="528" class="title">Admin</text>
+  <text x="60" y="550" class="text">Adds an app: name +</text>
+  <text x="60" y="567" class="text">backend, one form</text>
+
+  <!-- The host -->
+  <rect x="278" y="104" width="932" height="500" rx="16" class="host"/>
+  <text x="300" y="130" class="hosttitle">ONE CONTAINER HOST · DOCKER</text>
+
+  <!-- Gateway -->
+  <rect x="310" y="150" width="266" height="200" rx="14" class="hero"/>
+  <rect x="490" y="160" width="74" height="18" rx="9" class="tag"/><text x="527" y="172.5" text-anchor="middle" class="tagtext">container</text>
+  <text x="330" y="186" class="big">Secure gateway</text>
+  <text x="330" y="206" class="text">Traefik reverse proxy + dashboard</text>
+  <text x="330" y="240" class="text">•  HTTPS for every app</text>
+  <text x="330" y="264" class="text">•  One name per app</text>
+  <text x="330" y="288" class="text">•  Network allow-list</text>
+  <text x="330" y="312" class="text">•  Security headers by default</text>
+
+  <path d="M240 240 L304 240" class="traffic"/>
+  <text x="250" y="230" class="label">HTTPS</text>
+
+  <!-- App network -->
+  <rect x="650" y="140" width="530" height="266" rx="14" class="zone"/>
+  <text x="672" y="162" class="zonetitle">PRIVATE APP NETWORK · NO EXPOSED PORTS</text>
+  <rect x="672" y="174" width="486" height="36" rx="8" class="box"/><text x="690" y="197" class="app">prefix</text><rect x="1074" y="183" width="74" height="18" rx="9" class="tag"/><text x="1111" y="195.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="218" width="486" height="36" rx="8" class="box"/><text x="690" y="241" class="app">palo-security-audit</text><rect x="1074" y="227" width="74" height="18" rx="9" class="tag"/><text x="1111" y="239.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="262" width="486" height="36" rx="8" class="box"/><text x="690" y="285" class="app">edl-self-service</text><rect x="1074" y="271" width="74" height="18" rx="9" class="tag"/><text x="1111" y="283.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="306" width="486" height="36" rx="8" class="box"/><text x="690" y="329" class="app">autoconfig</text><rect x="1074" y="315" width="74" height="18" rx="9" class="tag"/><text x="1111" y="327.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="350" width="486" height="36" rx="8" class="box" stroke-dasharray="4 4"/><text x="690" y="373" class="app" style="fill:#5f6b7c">+ your next app</text>
+
+  <path d="M576 240 L646 240" class="traffic"/>
+  <text x="586" y="228" class="label">by name</text>
+
+  <!-- Manager -->
+  <rect x="310" y="420" width="280" height="140" rx="14" class="box"/>
+  <rect x="310" y="432" width="3" height="22" rx="1.5" fill="url(#accent)"/>
+  <rect x="504" y="430" width="74" height="18" rx="9" class="tag"/><text x="541" y="442.5" text-anchor="middle" class="tagtext">container</text>
+  <text x="330" y="452" class="title">Gateway Manager</text>
+  <text x="330" y="476" class="text">Self-service web portal</text>
+  <text x="330" y="496" class="text">Issues and renews certificates</text>
+  <text x="330" y="516" class="text">Publishes routes, checks</text>
+  <text x="330" y="534" class="text">they are live</text>
+
+  <path d="M443 418 L443 356" class="mgmt"/>
+  <rect x="458" y="378" width="132" height="18" rx="3" class="lblbg"/>
+  <text x="460" y="391" class="mlabel">routes + certificates</text>
+  <path d="M240 438 L304 438" class="mgmt"/>
+  <text x="252" y="428" class="mlabel">signs</text>
+  <path d="M240 538 L304 538" class="mgmt"/>
+
+  <!-- Portainer -->
+  <rect x="880" y="452" width="300" height="122" rx="14" class="box"/>
+  <rect x="880" y="464" width="3" height="22" rx="1.5" fill="url(#accent)"/>
+  <rect x="1094" y="462" width="74" height="18" rx="9" class="tag"/><text x="1131" y="474.5" text-anchor="middle" class="tagtext">container</text>
+  <text x="900" y="484" class="title">Portainer</text>
+  <text x="900" y="508" class="text">Deploys and manages every</text>
+  <text x="900" y="526" class="text">container on the host as a</text>
+  <text x="900" y="544" class="text">stack: gateway, manager, apps</text>
+  <path d="M1030 450 L1030 410" class="mgmt"/>
+  <text x="1040" y="436" class="mlabel">deploys + manages</text>
+  <path d="M878 512 L596 512" class="mgmt"/>
+  <rect x="690" y="494" width="96" height="16" rx="3" class="lblbg"/>
+  <text x="694" y="506" class="mlabel">also manages</text>
+
+  <!-- Git -->
+  <rect x="880" y="630" width="300" height="62" rx="12" class="box"/>
+  <text x="900" y="656" class="title">Git repositories</text>
+  <text x="900" y="678" class="text">One compose stack per app</text>
+  <path d="M1030 628 L1030 580" class="mgmt"/>
+  <text x="1040" y="622" class="mlabel">pull + redeploy</text>
+
+  <!-- Apps today -->
+  <text x="40" y="726" class="zonetitle">ALREADY RUNNING ON THE GATEWAY</text>
+  <text x="40" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Prefix Reserve Portal</tspan>  ·  reserve IP addresses, backed by NetBox</text>
+  <text x="40" y="776" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Palo Security Audit</tspan>  ·  checks Palo Alto configs against security advisories</text>
+  <text x="620" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">EDL Self Service</tspan>  ·  central EDLs, add and remove entries in a web GUI</text>
+  <text x="620" y="776" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Autoconfig</tspan>  ·  standardized network config with Ansible</text>
+</svg>

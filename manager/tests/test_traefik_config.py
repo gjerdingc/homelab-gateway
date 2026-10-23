@@ -97,3 +97,11 @@ def test_revision_marker_tracks_content():
     assert tc.revision_marker(tc.render_app(renewed)) != marker
     assert tc.revision_marker(tc.render_core(core_config(), None)).startswith("tm-rev-core-")
     assert tc.revision_marker("http: {}\n") is None
+
+
+def test_start_path_redirects_only_the_root():
+    data = yaml.safe_load(tc.render_app({**APP, "start_path": "/admin/"}))
+    assert data["http"]["routers"]["grafana"]["middlewares"] == ["lan-only@file", "grafana-start@file", "secure-headers@file"]
+    redirect = data["http"]["middlewares"]["grafana-start"]["redirectRegex"]
+    assert redirect == {"regex": "^(https?://[^/]+)/?$", "replacement": "${1}/admin/", "permanent": False}
+    assert "grafana-start" not in tc.render_app(APP)

@@ -22,6 +22,7 @@
     <dt>FQDN</dt><dd class="mono">{{ a.fqdn }}</dd>
     {% if a.extra_sans %}<dt>Extra names</dt><dd class="mono">{{ a.extra_sans | join(', ') }}</dd>{% endif %}
     <dt>Backend</dt><dd class="mono">{{ a.backend_url }}</dd>
+    {% if a.start_path %}<dt>Start path</dt><dd><span class="mono">/</span> redirects to <span class="mono">{{ a.start_path }}</span></dd>{% endif %}
     <dt>Options</dt><dd>{{ 'LAN only' if a.lan_only else 'Open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</dd>
     {% if a.notes %}<dt>Notes</dt><dd>{{ a.notes }}</dd>{% endif %}
   </dl>

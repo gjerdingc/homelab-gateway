@@ -125,3 +125,15 @@ def test_internal_apps_need_a_container_name_not_an_ip():
     assert "External service" in errors["backend_url"]
     assert not v({"kind": "external", "backend_url": "https://10.0.0.5:443"})[1]
     assert not v({"kind": "external", "backend_url": "http://pihole.lan:80"})[1]
+
+
+@pytest.mark.parametrize("path,expected", [("/admin/", "/admin/"), (" /admin ", "/admin"), ("/", ""), ("", ""),
+                                           ("/a/b-c_d.e~f/", "/a/b-c_d.e~f/")])
+def test_start_path_is_cleaned(path, expected):
+    fields, errors = v({"start_path": path})
+    assert not errors and fields["start_path"] == expected
+
+
+@pytest.mark.parametrize("path", ["admin", "/admin?x=1", "/a b", "//evil.com", "/../etc", "/a/./b", "/$1", "/" + "a" * 200])
+def test_bad_start_path(path):
+    assert "start_path" in v({"start_path": path})[1]

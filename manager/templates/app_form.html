@@ -31,6 +31,7 @@
       {% if errors.get('extra_sans') %}<p class="error">{{ errors['extra_sans'] }}</p>{% endif %}
     </div>
     {{ field('backend_url', 'Backend URL', v.backend_url, errors, 'scheme://host:port. Internal: the container name. External: an IP or host name Traefik can reach.', placeholder='http://grafana:3000', mono=true) }}
+    {{ field('start_path', 'Start path (optional)', v.start_path or '', errors, 'Opening https://' ~ (v.fqdn or 'name') ~ '/ redirects here, for apps whose UI lives in a sub-path, e.g. /admin/ for Pi-hole. Other paths are passed through unchanged.', placeholder='/admin/', mono=true) }}
   </section>
   <section class="card">
     <h2>Options</h2>

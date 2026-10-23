@@ -24,7 +24,7 @@
 
   <rect width="1200" height="664" fill="#f5f6f8"/>
   <rect width="1200" height="4" fill="url(#accent)"/>
-  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Internal App Gateway</text>
+  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Internal Tools Platform</text>
   <text x="40" y="78" font-size="15" fill="#5f6b7c">One secure front door for every internal web app. HTTPS, certificates and routing are handled for you.</text>
 
   <!-- Users -->

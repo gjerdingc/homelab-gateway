@@ -115,3 +115,12 @@ def test_allowed_sources_add_an_ip_allow_list():
     assert "grafana-start" in data["http"]["middlewares"]
     assert "grafana-sources" not in tc.render_app(APP)
     assert "grafana-sources" not in tc.render_app({**APP, "allowed_sources": []})
+
+
+def test_named_lists_and_extra_addresses_merge_into_one_allow_list():
+    app = {**APP, "ip_lists": ["admins", "vpn"], "allowed_sources": ["10.0.0.20", "10.9.9.9"]}
+    lists = {"admins": ["10.0.0.20", "10.0.0.21"], "vpn": ["10.8.0.0/24"]}
+    data = yaml.safe_load(tc.render_app(app, lists))
+    assert data["http"]["middlewares"]["grafana-sources"]["ipAllowList"]["sourceRange"] == [
+        "10.0.0.20", "10.0.0.21", "10.8.0.0/24", "10.9.9.9"]
+    assert tc.effective_sources({**APP, "ip_lists": ["admins"]}, lists) == ["10.0.0.20", "10.0.0.21"]

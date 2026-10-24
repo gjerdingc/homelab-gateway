@@ -72,6 +72,31 @@ def test_allowed_sources_round_trip_through_the_forms(client):
     assert r.status_code == 400 and b"not an IP address or subnet" in r.data and b"nope</textarea>" in r.data
 
 
+def test_ip_list_pages_and_app_form(client):
+    client.tm["manager"].startup()
+    assert b"No IP lists yet" in client.get("/ip-lists").data
+    r = client.post("/ip-lists/new", data={"name": "admins", "description": "Admin PCs", "sources": "10.0.0.20",
+                                           "csrf_token": token(client)})
+    assert r.status_code == 302
+    r = client.post("/ip-lists/new", data={"name": "admins", "sources": "", "csrf_token": token(client)})
+    assert r.status_code == 400 and b"already exists" in r.data
+    form_page = client.get("/apps/new").get_data(as_text=True)
+    assert 'name="ip_lists" value="admins"' in form_page and "Admin PCs" in form_page
+    client.post("/apps/new", data={**FORM, "ip_lists": ["admins"], "csrf_token": token(client)})
+    assert client.tm["manager"].get("grafana")["ip_lists"] == ["admins"]
+    assert 'value="admins" checked' in client.get("/apps/grafana/edit").get_data(as_text=True)
+    assert "/ip-lists/admins/edit" in client.get("/apps/grafana").get_data(as_text=True)
+    page = client.get("/ip-lists").get_data(as_text=True)
+    assert "/apps/grafana" in page
+    r = client.post("/ip-lists/admins/edit", data={"sources": "10.0.0.20, 10.0.0.30", "csrf_token": token(client)},
+                    follow_redirects=True)
+    assert b"Updated 1 app: grafana" in r.data
+    assert b"Remove it from those apps" in client.get("/ip-lists/admins/edit").data
+    r = client.post("/ip-lists/admins/delete", data={"csrf_token": token(client)}, follow_redirects=True)
+    assert b"used by grafana" in r.data and client.tm["manager"].get_ip_list("admins")
+    assert client.get("/ip-lists/nope/edit").status_code == 404
+
+
 def test_delete_requires_typed_slug(client):
     client.tm["manager"].startup()
     client.post("/apps/new", data={**FORM, "csrf_token": token(client)})

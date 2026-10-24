@@ -15,7 +15,7 @@ import yaml
 import pki
 import store as st
 import traefik_config as tc
-from validate import validate_app
+from validate import validate_app, validate_ip_list
 
 MANAGER_SLUG = tc.RESERVED
 # The router the bootstrap/renewal of the manager's own cert waits for.
@@ -105,8 +105,22 @@ class Manager:
         rec = self.get(MANAGER_SLUG)
         return rec.get("cert") if rec else None
 
-    def render_for(self, app):
-        return tc.render_core(self.config, app.get("cert")) if app.get("reserved") else tc.render_app(app)
+    def ip_lists(self):
+        return self.store.ip_lists()
+
+    def get_ip_list(self, name):
+        return next((l for l in self.ip_lists() if l["name"] == name), None)
+
+    def ip_list_map(self, lists=None):
+        return {l["name"]: l["sources"] for l in (self.ip_lists() if lists is None else lists)}
+
+    def apps_using(self, name):
+        return [a["slug"] for a in self.apps() if name in (a.get("ip_lists") or [])]
+
+    def render_for(self, app, lists=None):
+        if app.get("reserved"):
+            return tc.render_core(self.config, app.get("cert"))
+        return tc.render_app(app, self.ip_list_map(lists))
 
     def cert_expired(self, app):
         cert = app.get("cert")
@@ -238,7 +252,8 @@ class Manager:
     # ---- user actions ----------------------------------------------------------
 
     def validate(self, form, editing_slug=None):
-        return validate_app(form, self.apps(), self.config.allowed_domains, editing_slug)
+        return validate_app(form, self.apps(), self.config.allowed_domains, editing_slug,
+                            [l["name"] for l in self.ip_lists()])
 
     def create_app(self, form):
         self._require_ready()
@@ -317,6 +332,88 @@ class Manager:
             self.actions.write(f"deleted {slug} ({app['fqdn']}); archived to {archive}")
             return archive
 
+    # ---- named IP lists --------------------------------------------------------
+
+    def _save_lists(self, data, action):
+        """Save apps.yml with changed IP lists and rewrite the app files that use them.
+
+        Waits for Traefik to load each rewritten file; a rejection puts everything back.
+        Returns the slugs whose files changed and those Traefik has not confirmed."""
+        if not self.config.ok:
+            raise ApplyError(self.problem())
+        saved_data = self.store.load()
+        changes = []
+        for a in data["apps"]:
+            if a.get("reserved") or not a.get("enabled", True) or not a.get("cert"):
+                continue
+            path, text = self._app_path(a["slug"]), self.render_for(a, data["ip_lists"])
+            old = st.read_text(path)
+            if old != text:
+                changes.append((a["slug"], path, old, text))
+
+        def rollback():
+            try:
+                for _, path, old, _ in changes:
+                    self._restore(path, old)
+            finally:
+                self.store.save(saved_data)
+
+        try:
+            self.store.save(data)
+            for _, path, _, text in changes:
+                st.atomic_write(path, text)
+        except BaseException:
+            rollback()
+            raise
+        unconfirmed = []
+        for slug, _, _, text in changes:
+            state, detail = self.api.wait_for_router(slug, tc.revision_marker(text))
+            if state == "rejected":
+                rollback()
+                self.actions.write(f"{action}: Traefik rejected the config for {slug}: {detail}", "ERROR")
+                raise ApplyError(f"Traefik rejected the config for {slug}, so nothing was changed: {detail}")
+            if state != "enabled":
+                unconfirmed.append(slug)
+        updated = [c[0] for c in changes]
+        self.actions.write(f"{action}" + (f"; rewrote {', '.join(updated)}" if updated else "")
+                           + (f"; not confirmed by Traefik: {', '.join(unconfirmed)}" if unconfirmed else ""),
+                           "WARN" if unconfirmed else "INFO")
+        return updated, unconfirmed
+
+    def create_ip_list(self, form):
+        with self.lock:
+            data = self.store.load()
+            fields, errors = validate_ip_list(form, data["ip_lists"])
+            if errors:
+                raise ApplyError("Please fix the highlighted fields.", errors)
+            now = st.now_iso()
+            data["ip_lists"].append({**fields, "created_at": now, "updated_at": now})
+            return self._save_lists(data, f"created IP list {fields['name']}")
+
+    def update_ip_list(self, name, form):
+        with self.lock:
+            data = self.store.load()
+            prev = next((l for l in data["ip_lists"] if l["name"] == name), None)
+            if not prev:
+                raise ApplyError(f"IP list {name!r} not found")
+            fields, errors = validate_ip_list(form, data["ip_lists"], editing_name=name)
+            if errors:
+                raise ApplyError("Please fix the highlighted fields.", errors)
+            new = {**prev, **fields, "updated_at": st.now_iso()}
+            data["ip_lists"] = [new if l["name"] == name else l for l in data["ip_lists"]]
+            return self._save_lists(data, f"updated IP list {name}")
+
+    def delete_ip_list(self, name):
+        with self.lock:
+            data = self.store.load()
+            if not any(l["name"] == name for l in data["ip_lists"]):
+                raise ApplyError(f"IP list {name!r} not found")
+            used = self.apps_using(name)
+            if used:
+                raise ApplyError(f"IP list {name!r} is used by {', '.join(used)}. Remove it from those apps first.")
+            data["ip_lists"] = [l for l in data["ip_lists"] if l["name"] != name]
+            return self._save_lists(data, f"deleted IP list {name}")
+
     # ---- bootstrap, regenerate, renew ------------------------------------------
 
     def _manager_record(self):
@@ -354,7 +451,7 @@ class Manager:
             desired = {"_core.yml": tc.render_core(self.config, mgr.get("cert") if mgr else None)}
             for a in apps:
                 if not a.get("reserved") and a.get("enabled", True) and a.get("cert"):
-                    desired[tc.app_filename(a["slug"])] = tc.render_app(a)
+                    desired[tc.app_filename(a["slug"])] = self.render_for(a)
             os.makedirs(self.config.dynamic_dir, exist_ok=True)
             for name, text in desired.items():
                 self._write_if_changed(self._dyn(name), text)

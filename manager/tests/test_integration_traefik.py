@@ -239,8 +239,8 @@ def test_edit_rejected_by_traefik_is_rolled_back(stack, monkeypatch):
 
     real = tc.render_app
 
-    def broken(app):  # a router that points at a middleware Traefik does not have
-        return real({**app, "lan_only": False}).replace("- secure-headers@file", "- does-not-exist@file")
+    def broken(app, ip_lists=None):  # a router that points at a middleware Traefik does not have
+        return real({**app, "lan_only": False}, ip_lists).replace("- secure-headers@file", "- does-not-exist@file")
 
     monkeypatch.setattr(tc, "render_app", broken)
     with pytest.raises(ApplyError, match="does-not-exist"):
@@ -349,3 +349,15 @@ def test_allowed_sources_restrict_clients(stack):
     assert stack.get("restricted.gjecorp.net")[0] == 200
     assert m.update_app("restricted", {**form, "allowed_sources": ""}).verified
     assert stack.get("restricted.gjecorp.net")[0] == 200
+
+
+def test_named_ip_list_changes_reach_traefik(stack):
+    m = stack.manager
+    m.startup()
+    backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+    m.create_ip_list({"name": "admins", "sources": "192.0.2.0/24"})
+    assert m.create_app({**FORM, "slug": "listed", "fqdn": "listed.gjecorp.net", "kind": "external",
+                         "backend_url": backend_url, "ip_lists": ["admins"]}).verified
+    assert stack.get("listed.gjecorp.net")[0] == 403
+    assert m.update_ip_list("admins", {"sources": "192.0.2.0/24\n127.0.0.1"}) == (["listed"], [])
+    assert stack.get("listed.gjecorp.net")[0] == 200

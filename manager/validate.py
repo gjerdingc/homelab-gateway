@@ -94,7 +94,36 @@ def _is_ip(host):
         return False
 
 
-def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
+def _getlist(form, key):
+    """Multi-value form field: a Flask MultiDict, or a plain dict holding a list or a string."""
+    if hasattr(form, "getlist"):
+        return form.getlist(key)
+    value = form.get(key) or []
+    return [value] if isinstance(value, str) else list(value)
+
+
+def validate_ip_list(form, existing_lists, editing_name=None):
+    """Validate a named IP list. Returns (fields, errors)."""
+    errors = {}
+    name = editing_name or (form.get("name") or "").strip().lower()
+    if editing_name is None:
+        if not SLUG_RE.match(name):
+            errors["name"] = "Name must be lowercase letters, digits and dashes (max 41 chars), starting with a letter or digit"
+        elif any(l["name"] == name for l in existing_lists):
+            errors["name"] = f"A list named {name!r} already exists"
+    sources, err = normalize_sources(form.get("sources"))
+    if err:
+        errors["sources"] = err
+    elif not sources:
+        # An empty list would quietly let every client in to the apps that use it.
+        errors["sources"] = "Add at least one address or subnet"
+    description = (form.get("description") or "").strip()
+    if len(description) > 200:
+        errors["description"] = "Description is limited to 200 characters"
+    return {"name": name, "description": description, "sources": sources or []}, errors
+
+
+def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=()):
     """Validate form data. existing_apps is the full list of app records.
 
     Returns (app_fields, errors) where errors maps a field name to a message."""
@@ -161,6 +190,12 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
     allowed_sources, err = normalize_sources(form.get("allowed_sources"))
     if err:
         errors["allowed_sources"] = err
+    ip_lists = []
+    for name in _getlist(form, "ip_lists"):
+        if name not in ip_list_names:
+            errors["ip_lists"] = f"IP list {name!r} does not exist"
+        elif name not in ip_lists:
+            ip_lists.append(name)
 
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:
@@ -176,6 +211,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
         "start_path": start_path,
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
+        "ip_lists": ip_lists,
         "allowed_sources": allowed_sources or [],
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,

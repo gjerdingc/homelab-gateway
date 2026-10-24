@@ -61,6 +61,17 @@ def test_preview_does_not_create(client):
     assert b"Host(`grafana.gjecorp.net`)" in r.data and client.tm["manager"].apps() == []
 
 
+def test_allowed_sources_round_trip_through_the_forms(client):
+    client.tm["manager"].startup()
+    client.post("/apps/new", data={**FORM, "allowed_sources": "10.0.0.20, 10.0.0.64/27", "csrf_token": token(client)})
+    assert client.tm["manager"].get("grafana")["allowed_sources"] == ["10.0.0.20", "10.0.0.64/27"]
+    assert "10.0.0.20, 10.0.0.64/27" in client.get("/apps/grafana").get_data(as_text=True)
+    assert "10.0.0.20\n10.0.0.64/27</textarea>" in client.get("/apps/grafana/edit").get_data(as_text=True)
+    r = client.post("/apps/new", data={**FORM, "slug": "x", "fqdn": "x.gjecorp.net", "allowed_sources": "nope",
+                                       "csrf_token": token(client)})
+    assert r.status_code == 400 and b"not an IP address or subnet" in r.data and b"nope</textarea>" in r.data
+
+
 def test_delete_requires_typed_slug(client):
     client.tm["manager"].startup()
     client.post("/apps/new", data={**FORM, "csrf_token": token(client)})

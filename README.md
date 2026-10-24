@@ -119,6 +119,14 @@ Not everything is a container on the `proxy` network. Pi-hole, a firewall web UI
 - Internal apps must use a container name; an IP address is refused with a hint to choose External service.
 - Some web UIs live under a sub-path, e.g. Pi-hole at `/admin/`. Set **Start path** to `/admin/` and opening `https://pihole.gjecorp.net/` redirects there. Only the bare `/` is redirected; every other path reaches the service unchanged. This works for internal apps too.
 
+## Restricting source addresses
+
+Any app or external service can be limited to certain clients. Fill in **Allowed source IPs** with addresses or subnets, IPv4 or IPv6, one per line or comma-separated, e.g. `10.0.0.20` and `10.0.0.64/27`. Other clients get 403. Leave it empty to allow any source.
+
+- It becomes an `ipAllowList` middleware named `<slug>-sources` in the app's file.
+- It is checked in addition to **LAN only**: with both on, a client must be in `LAN_CIDRS` and in the app's list. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
+- Traefik checks the address it sees as the source. If clients reach it through NAT or another proxy, every client may appear as the same address.
+
 ## Renewal
 
 Every `RENEW_CHECK_HOURS` the manager renews certs with fewer than `RENEW_BEFORE_DAYS` days left. A cert already limited by the intermediate's own expiry is not renewed repeatedly. Results are on **Status**; failures show as a red banner on every page.
@@ -146,7 +154,7 @@ Traefik's access log now goes to that file instead of the container output, so i
 | External service gives 500 | The backend uses a certificate Traefik doesn't trust (self-signed). Tick "Do not verify the backend's TLS certificate". |
 | External service gives 502 or times out | Traefik can't reach the IP and port from the container host. Check the service's own firewall or allow-list. |
 | DNS check red | The DNS record is missing or misspelled. |
-| 403 from a LAN client | `lan-only` is on and Traefik sees a different source IP. Check the Traefik access log. Docker can hide the client IP in some setups (e.g. IPv6). Untick "LAN only" for that app or fix `LAN_CIDRS`. |
+| 403 from a LAN client | `lan-only` is on and Traefik sees a different source IP. Check the Traefik access log. Docker can hide the client IP in some setups (e.g. IPv6). Untick "LAN only" for that app or fix `LAN_CIDRS`. If the app has **Allowed source IPs**, the client must be in that list too. |
 | Browser shows a certificate warning | The root certificate is not installed on that device, or the name is not in the cert's SANs. |
 | "Traefik rejected the config, so nothing was changed" | The message is Traefik's own error. The previous config is restored. |
 | Status shows Traefik unreachable | The manager reaches Traefik's API at `TRAEFIK_API_URL` (default `http://traefik:8080`) on the proxy network. Both containers must be on it. |

@@ -276,6 +276,7 @@ apps:
     backend_tls_skip_verify: false      # only for https backends with untrusted certs
     pass_host_header: true
     lan_only: true                      # attach lan-only middleware (default true)
+    allowed_sources: []                 # optional IPs/CIDRs; non-empty adds an ipAllowList <slug>-sources (empty = any)
     security_headers: true              # attach secure-headers middleware (default true)
     enabled: true                       # false = keep config, remove router file
     notes: ""
@@ -472,7 +473,7 @@ Planned hardening steps, in order of value:
 7. Only the intermediate dir and the root **cert** are mounted under `/pki` (`docker exec` into each container to confirm). Traefik has no access to the intermediate key.
 8. A `manual-test.yml` dropped into `dynamic/` is loaded by Traefik and is never modified or deleted by the manager, including by "Regenerate all".
 9. Killing the manager container does not affect traffic to existing apps.
-10. Requests to any app from outside `LAN_CIDRS` get 403 (when `lan_only` is on).
+10. Requests to any app from outside `LAN_CIDRS` get 403 (when `lan_only` is on), and from outside its `allowed_sources` when that list is set.
 11. The image builds on the Pi (arm64) in a reasonable time. Use an Alpine base with `py3-*` packages where possible, like dev-test.
 
 ---

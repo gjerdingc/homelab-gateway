@@ -53,6 +53,9 @@ def render_app(app):
     middlewares = []
     if app.get("lan_only", True):
         middlewares.append("lan-only@file")
+    sources = app.get("allowed_sources") or []
+    if sources:
+        middlewares.append(f"{slug}-sources@file")
     start_path = app.get("start_path")
     if start_path:
         middlewares.append(f"{slug}-start@file")
@@ -75,10 +78,13 @@ def render_app(app):
         lb["serversTransport"] = f"{slug}-insecure@file"
         http["serversTransports"] = {f"{slug}-insecure": {"insecureSkipVerify": True}}
 
+    if sources:
+        # Chained after lan-only, so a client must pass both lists.
+        http.setdefault("middlewares", {})[f"{slug}-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
     if start_path:
         # Only the bare root is redirected; every other path reaches the backend unchanged.
-        http["middlewares"] = {f"{slug}-start": {"redirectRegex": {
-            "regex": r"^(https?://[^/]+)/?$", "replacement": "${1}" + start_path, "permanent": False}}}
+        http.setdefault("middlewares", {})[f"{slug}-start"] = {"redirectRegex": {
+            "regex": r"^(https?://[^/]+)/?$", "replacement": "${1}" + start_path, "permanent": False}}
 
     data = {"http": http}
     cert = app.get("cert")

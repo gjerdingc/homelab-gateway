@@ -132,21 +132,22 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [],
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "start_path": "", "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
+                "start_path": "", "allowed_sources": [], "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
         return {"slug": f.get("slug", ""), "kind": f.get("kind", "internal"), "fqdn": f.get("fqdn", ""),
                 "extra_sans": f.get("extra_sans", ""),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
-                "start_path": f.get("start_path", ""),
+                "start_path": f.get("start_path", ""), "allowed_sources": f.get("allowed_sources", ""),
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
                 "security_headers": bool(f.get("security_headers"))}
 
     def render_form(values, errors=None, editing=None, preview=None):
-        if isinstance(values.get("extra_sans"), list):
-            values = {**values, "extra_sans": "\n".join(values["extra_sans"])}
+        for key in ("extra_sans", "allowed_sources"):
+            if isinstance(values.get(key), list):
+                values = {**values, key: "\n".join(values[key])}
         return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview)
 
     # ---- pages ---------------------------------------------------------------

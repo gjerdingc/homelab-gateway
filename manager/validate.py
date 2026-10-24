@@ -15,6 +15,7 @@ RESERVED_SLUGS = {"_manager", "core", "manual"}
 # A strict character set keeps it safe to place in a Traefik regex replacement.
 START_PATH_RE = re.compile(r"^/[A-Za-z0-9._~/-]{0,199}$")
 BACKEND_HOST_RE = re.compile(r"^[A-Za-z0-9_]([A-Za-z0-9_.-]{0,251}[A-Za-z0-9_])?$")
+MAX_SOURCES = 50
 
 
 def split_names(raw):
@@ -64,6 +65,25 @@ def normalize_backend(url):
         if not BACKEND_HOST_RE.match(host):
             return None, f"Backend host {host!r} is not a valid hostname or IP"
     return f"{p.scheme}://{host}:{port}", None
+
+
+def normalize_sources(raw):
+    """Return (sources, error) for the optional per-app source allow list.
+
+    Accepts single addresses and CIDR subnets, IPv4 or IPv6. A subnet with host bits set
+    (10.0.0.5/24) is stored as its network (10.0.0.0/24). Empty means any source."""
+    sources = []
+    for item in split_names(raw):
+        try:
+            net = ipaddress.ip_network(item, strict=False)
+        except ValueError:
+            return None, f"{item!r} is not an IP address or subnet, e.g. 10.0.0.5 or 10.0.0.0/24"
+        value = str(net.network_address) if net.num_addresses == 1 else str(net)
+        if value not in sources:
+            sources.append(value)
+    if len(sources) > MAX_SOURCES:
+        return None, f"At most {MAX_SOURCES} entries; use subnets to cover more addresses"
+    return sources, None
 
 
 def _is_ip(host):
@@ -138,6 +158,10 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
                        or any(seg in (".", "..") for seg in start_path.split("/"))):
         errors["start_path"] = "Start path must look like /admin/ (letters, digits, - _ . ~ and /)"
 
+    allowed_sources, err = normalize_sources(form.get("allowed_sources"))
+    if err:
+        errors["allowed_sources"] = err
+
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:
         errors["notes"] = "Notes are limited to 500 characters"
@@ -152,6 +176,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None):
         "start_path": start_path,
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
+        "allowed_sources": allowed_sources or [],
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,
     }

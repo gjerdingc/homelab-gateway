@@ -137,3 +137,24 @@ def test_start_path_is_cleaned(path, expected):
 @pytest.mark.parametrize("path", ["admin", "/admin?x=1", "/a b", "//evil.com", "/../etc", "/a/./b", "/$1", "/" + "a" * 200])
 def test_bad_start_path(path):
     assert "start_path" in v({"start_path": path})[1]
+
+
+def test_allowed_sources_default_to_any():
+    fields, errors = v({})
+    assert not errors and fields["allowed_sources"] == []
+
+
+def test_allowed_sources_are_cleaned():
+    fields, errors = v({"allowed_sources": "10.0.0.20, 10.0.0.5/24\n10.0.0.20/32 192.168.1.0/24\nFD00::1 2001:db8::/32"})
+    assert not errors
+    assert fields["allowed_sources"] == ["10.0.0.20", "10.0.0.0/24", "192.168.1.0/24", "fd00::1", "2001:db8::/32"]
+
+
+@pytest.mark.parametrize("raw", ["10.0.0.256", "10.0.0.0/33", "pihole.lan", "10.0.0.1-10.0.0.9", "any"])
+def test_bad_allowed_sources(raw):
+    assert "allowed_sources" in v({"allowed_sources": raw})[1]
+
+
+def test_allowed_sources_are_capped():
+    raw = " ".join(f"10.0.{i}.1" for i in range(51))
+    assert "allowed_sources" in v({"allowed_sources": raw})[1]

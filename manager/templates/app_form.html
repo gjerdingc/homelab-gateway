@@ -42,6 +42,12 @@
       <label><input type="checkbox" name="backend_tls_skip_verify" {% if v.backend_tls_skip_verify %}checked{% endif %}> Do not verify the backend's TLS certificate (https backends only, e.g. a self-signed web UI)</label>
       {% if errors.get('backend_tls_skip_verify') %}<p class="error">{{ errors['backend_tls_skip_verify'] }}</p>{% endif %}
     </div>
+    <div class="field{% if errors.get('allowed_sources') %} has-error{% endif %}">
+      <label for="allowed_sources">Allowed source IPs (optional)</label>
+      <textarea id="allowed_sources" name="allowed_sources" rows="3" class="mono" autocapitalize="none" spellcheck="false" placeholder="10.0.0.20&#10;10.0.0.64/27">{{ v.allowed_sources or '' }}</textarea>
+      <p class="help">Addresses or subnets, one per line or comma-separated. Other clients get 403. Leave empty to allow any source. With LAN only ticked, a client must match both.</p>
+      {% if errors.get('allowed_sources') %}<p class="error">{{ errors['allowed_sources'] }}</p>{% endif %}
+    </div>
     {{ field('notes', 'Notes', v.notes, errors) }}
     <div class="actions">
       <button class="btn btn-primary" type="submit">{{ 'Save and apply' if editing else ('Create service and certificate' if ext else 'Create app and certificate') }}</button>

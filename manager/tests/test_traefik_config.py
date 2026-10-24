@@ -105,3 +105,13 @@ def test_start_path_redirects_only_the_root():
     redirect = data["http"]["middlewares"]["grafana-start"]["redirectRegex"]
     assert redirect == {"regex": "^(https?://[^/]+)/?$", "replacement": "${1}/admin/", "permanent": False}
     assert "grafana-start" not in tc.render_app(APP)
+
+
+def test_allowed_sources_add_an_ip_allow_list():
+    data = yaml.safe_load(tc.render_app({**APP, "allowed_sources": ["10.0.0.20", "10.0.1.0/24"], "start_path": "/admin/"}))
+    assert data["http"]["routers"]["grafana"]["middlewares"] == [
+        "lan-only@file", "grafana-sources@file", "grafana-start@file", "secure-headers@file"]
+    assert data["http"]["middlewares"]["grafana-sources"] == {"ipAllowList": {"sourceRange": ["10.0.0.20", "10.0.1.0/24"]}}
+    assert "grafana-start" in data["http"]["middlewares"]
+    assert "grafana-sources" not in tc.render_app(APP)
+    assert "grafana-sources" not in tc.render_app({**APP, "allowed_sources": []})

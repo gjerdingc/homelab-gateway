@@ -335,3 +335,17 @@ def test_start_path_redirects_root_to_sub_path(stack):
     assert "location: https://pihole.gjecorp.net/admin/" in [l.lower() for l in lines]
     status, body, _ = stack.get("pihole.gjecorp.net", "/admin/")  # sub-paths reach the backend unchanged
     assert status == 200 and "app-backend" in body
+
+
+def test_allowed_sources_restrict_clients(stack):
+    m = stack.manager
+    m.startup()
+    backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+    form = {**FORM, "slug": "restricted", "fqdn": "restricted.gjecorp.net", "kind": "external",
+            "backend_url": backend_url, "allowed_sources": "192.0.2.0/24"}
+    assert m.create_app(form).verified
+    assert stack.get("restricted.gjecorp.net")[0] == 403  # the test client is 127.0.0.1
+    assert m.update_app("restricted", {**form, "allowed_sources": "192.0.2.0/24\n127.0.0.1"}).verified
+    assert stack.get("restricted.gjecorp.net")[0] == 200
+    assert m.update_app("restricted", {**form, "allowed_sources": ""}).verified
+    assert stack.get("restricted.gjecorp.net")[0] == 200

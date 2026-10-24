@@ -158,3 +158,22 @@ def test_bad_allowed_sources(raw):
 def test_allowed_sources_are_capped():
     raw = " ".join(f"10.0.{i}.1" for i in range(51))
     assert "allowed_sources" in v({"allowed_sources": raw})[1]
+
+
+def test_ip_lists_must_exist_and_are_deduplicated():
+    fields, errors = validate_app({**GOOD, "ip_lists": ["admins", "admins", "vpn"]}, [], DOMAINS, None, ["admins", "vpn"])
+    assert not errors and fields["ip_lists"] == ["admins", "vpn"]
+    assert "ip_lists" in validate_app({**GOOD, "ip_lists": ["nope"]}, [], DOMAINS, None, ["admins"])[1]
+    assert v({})[0]["ip_lists"] == []
+
+
+def test_ip_list_validation():
+    from validate import validate_ip_list
+    fields, errors = validate_ip_list({"name": " Admins ", "sources": "10.0.0.20, 10.0.0.0/24", "description": "x"}, [])
+    assert not errors and fields == {"name": "admins", "description": "x", "sources": ["10.0.0.20", "10.0.0.0/24"]}
+    assert "sources" in validate_ip_list({"name": "a", "sources": ""}, [])[1]
+    assert "sources" in validate_ip_list({"name": "a", "sources": "nope"}, [])[1]
+    assert "name" in validate_ip_list({"name": "a b", "sources": "10.0.0.1"}, [])[1]
+    assert "name" in validate_ip_list({"name": "a", "sources": "10.0.0.1"}, [{"name": "a"}])[1]
+    fields, errors = validate_ip_list({"name": "ignored", "sources": "10.0.0.1"}, [{"name": "a"}], editing_name="a")
+    assert not errors and fields["name"] == "a"

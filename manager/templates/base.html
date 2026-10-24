@@ -37,6 +37,7 @@
     <nav>
       <a href="{{ url_for('home') }}" {% if ep in ('home', 'app_detail', 'app_edit') %}class="active"{% endif %}>Apps</a>
       <a href="{{ url_for('app_new') }}" {% if ep == 'app_new' or ep == 'app_preview' %}class="active"{% endif %}>Add<span class="nav-long"> app</span></a>
+      <a href="{{ url_for('ip_lists') }}" {% if ep and ep.startswith('ip_list') %}class="active"{% endif %}>IP lists</a>
       <a href="{{ url_for('status') }}" {% if ep == 'status' %}class="active"{% endif %}>Status</a>
       <a href="{{ url_for('usage') }}" {% if ep == 'usage' %}class="active"{% endif %}>Usage</a>
       <a href="{{ url_for('log_page') }}" {% if ep == 'log_page' %}class="active"{% endif %}>Log</a>

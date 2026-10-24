@@ -77,3 +77,11 @@ details summary { cursor: pointer; padding: .25rem 0; }
 .kind-option strong { display: block; font-weight: 600; }
 .kind-option .help { display: block; margin-top: .1rem; }
 .kind-choice .kind-option:has(input:checked) { border-color: var(--primary); }
+
+/* Add/edit form: allowed sources (named IP lists plus extra addresses) */
+.source-lists { border: 0; padding: 0; margin: 0 0 1rem; }
+.source-lists legend { font-weight: 550; font-size: .9rem; margin-bottom: .3rem; padding: 0; }
+.source-lists .checks label { display: flex; font-weight: 400; font-size: inherit; }
+.source-lists .checks input { flex: none; }
+.source-lists .checks .help { display: block; margin: .1rem 0 0; }
+.source-lists > .field { margin-top: .5rem; }

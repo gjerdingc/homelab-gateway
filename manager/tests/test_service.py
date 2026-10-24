@@ -271,3 +271,47 @@ def test_records_without_kind_count_as_internal(manager):
     data["apps"][0].pop("kind")
     manager.store.save(data)
     assert manager.external_slugs() == set()
+
+
+def test_ip_list_edit_rewrites_only_the_apps_using_it(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_app({**FORM, "ip_lists": ["admins"]})
+    manager.create_app({**FORM, "slug": "other", "fqdn": "other.gjecorp.net"})
+    assert "10.0.0.20" in open(dyn(manager, "app-grafana.yml")).read()
+    manager.api.calls.clear()
+    updated, unconfirmed = manager.update_ip_list("admins", {"sources": "10.0.0.20\n10.0.0.30"})
+    assert updated == ["grafana"] and unconfirmed == [] and manager.api.calls == ["grafana"]
+    assert "10.0.0.30" in open(dyn(manager, "app-grafana.yml")).read()
+    assert "10.0.0.30" not in open(dyn(manager, "app-other.yml")).read()
+    assert manager.get_ip_list("admins")["sources"] == ["10.0.0.20", "10.0.0.30"]
+
+
+def test_ip_list_edit_rejected_by_traefik_rolls_back(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_app({**FORM, "ip_lists": ["admins"]})
+    before = open(dyn(manager, "app-grafana.yml")).read()
+    manager.api.state, manager.api.detail = "rejected", "bad"
+    with pytest.raises(ApplyError):
+        manager.update_ip_list("admins", {"sources": "10.0.0.99"})
+    assert open(dyn(manager, "app-grafana.yml")).read() == before
+    assert manager.get_ip_list("admins")["sources"] == ["10.0.0.20"]
+
+
+def test_ip_list_in_use_cannot_be_deleted(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_app({**FORM, "ip_lists": ["admins"]})
+    with pytest.raises(ApplyError) as exc:
+        manager.delete_ip_list("admins")
+    assert "grafana" in str(exc.value) and manager.get_ip_list("admins")
+    manager.update_app("grafana", {**FORM, "ip_lists": []})
+    manager.delete_ip_list("admins")
+    assert manager.ip_lists() == []
+
+
+def test_regenerate_includes_named_lists(manager):
+    manager.startup()
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_app({**FORM, "ip_lists": ["admins"]})
+    os.unlink(dyn(manager, "app-grafana.yml"))
+    manager.regenerate_all()
+    assert "10.0.0.20" in open(dyn(manager, "app-grafana.yml")).read()

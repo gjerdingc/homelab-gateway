@@ -60,10 +60,11 @@ class Store:
     def load(self):
         text = read_text(self.path)
         if not text:
-            return {"version": 1, "apps": []}
+            return {"version": 1, "apps": [], "ip_lists": []}
         data = yaml.safe_load(text) or {}
         data.setdefault("version", 1)
         data.setdefault("apps", [])
+        data.setdefault("ip_lists", [])
         return data
 
     def save(self, data):
@@ -76,6 +77,9 @@ class Store:
 
     def get(self, slug):
         return next((a for a in self.apps() if a["slug"] == slug), None)
+
+    def ip_lists(self):
+        return self.load()["ip_lists"]
 
 
 class ActionLog:

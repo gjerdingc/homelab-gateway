@@ -47,13 +47,24 @@ def host_rule(names):
     return " || ".join(f"Host(`{n}`)" for n in names)
 
 
-def render_app(app):
-    """app-<slug>.yml for one app record."""
+def effective_sources(app, ip_lists):
+    """The app's selected named lists plus its own entries, de-duplicated. Empty means any source.
+
+    ip_lists maps a list name to its entries."""
+    out = []
+    for name in app.get("ip_lists") or []:
+        out.extend(ip_lists.get(name, []))
+    out.extend(app.get("allowed_sources") or [])
+    return list(dict.fromkeys(out))
+
+
+def render_app(app, ip_lists=None):
+    """app-<slug>.yml for one app record. ip_lists maps list names to entries."""
     slug = app["slug"]
     middlewares = []
     if app.get("lan_only", True):
         middlewares.append("lan-only@file")
-    sources = app.get("allowed_sources") or []
+    sources = effective_sources(app, ip_lists or {})
     if sources:
         middlewares.append(f"{slug}-sources@file")
     start_path = app.get("start_path")
@@ -79,7 +90,8 @@ def render_app(app):
         http["serversTransports"] = {f"{slug}-insecure": {"insecureSkipVerify": True}}
 
     if sources:
-        # Chained after lan-only, so a client must pass both lists.
+        # One allow list per app, so a client matching any selected list gets in.
+        # Chained after lan-only, so it must pass that too.
         http.setdefault("middlewares", {})[f"{slug}-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
     if start_path:
         # Only the bare root is redirected; every other path reaches the backend unchanged.

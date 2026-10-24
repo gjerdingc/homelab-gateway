@@ -121,10 +121,13 @@ Not everything is a container on the `proxy` network. Pi-hole, a firewall web UI
 
 ## Restricting source addresses
 
-Any app or external service can be limited to certain clients. Fill in **Allowed source IPs** with addresses or subnets, IPv4 or IPv6, one per line or comma-separated, e.g. `10.0.0.20` and `10.0.0.64/27`. Other clients get 403. Leave it empty to allow any source.
+Any app or external service can be limited to certain clients. Other clients get 403. With nothing set, any source is allowed.
 
-- It becomes an `ipAllowList` middleware named `<slug>-sources` in the app's file.
-- It is checked in addition to **LAN only**: with both on, a client must be in `LAN_CIDRS` and in the app's list. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
+- **IP lists** (in the menu) are named sets of addresses and subnets, IPv4 or IPv6, e.g. `admins` with your admin workstations or `vpn` with `10.8.0.0/24`. Define a list once, then tick it on each app that should use it.
+- **Extra addresses for this app** on the app form adds entries just for that app.
+- A client is let in if it matches any ticked list or any extra address. The manager merges them into one `ipAllowList` middleware named `<slug>-sources` in the app's file.
+- Editing a list rewrites every app that uses it, and waits for Traefik to load each one. If Traefik rejects one, the list and all files go back to how they were. A list in use can't be deleted, and a list must have at least one entry, so an app can't quietly end up open to everyone.
+- The source check comes on top of **LAN only**: with both on, a client must be in `LAN_CIDRS` and match the app's sources. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
 - Traefik checks the address it sees as the source. If clients reach it through NAT or another proxy, every client may appear as the same address.
 
 ## Renewal

@@ -42,12 +42,28 @@
       <label><input type="checkbox" name="backend_tls_skip_verify" {% if v.backend_tls_skip_verify %}checked{% endif %}> Do not verify the backend's TLS certificate (https backends only, e.g. a self-signed web UI)</label>
       {% if errors.get('backend_tls_skip_verify') %}<p class="error">{{ errors['backend_tls_skip_verify'] }}</p>{% endif %}
     </div>
-    <div class="field{% if errors.get('allowed_sources') %} has-error{% endif %}">
-      <label for="allowed_sources">Allowed source IPs (optional)</label>
-      <textarea id="allowed_sources" name="allowed_sources" rows="3" class="mono" autocapitalize="none" spellcheck="false" placeholder="10.0.0.20&#10;10.0.0.64/27">{{ v.allowed_sources or '' }}</textarea>
-      <p class="help">Addresses or subnets, one per line or comma-separated. Other clients get 403. Leave empty to allow any source. With LAN only ticked, a client must match both.</p>
-      {% if errors.get('allowed_sources') %}<p class="error">{{ errors['allowed_sources'] }}</p>{% endif %}
-    </div>
+    <fieldset class="field source-lists{% if errors.get('ip_lists') %} has-error{% endif %}">
+      <legend>Allowed sources (optional)</legend>
+      <p class="help">Leave everything empty to allow any source. Otherwise a client must match a selected list or one of the extra addresses, or it gets 403. With LAN only ticked, it must also be inside the LAN.</p>
+      {% if lists %}
+      <div class="checks">
+        {% for l in lists %}
+        <label><input type="checkbox" name="ip_lists" value="{{ l.name }}" {% if l.name in (v.ip_lists or []) %}checked{% endif %}>
+          <span><span class="mono">{{ l.name }}</span>{% if l.description %} – {{ l.description }}{% endif %}
+          <span class="help mono">{{ l.sources | join(', ') | truncate(80) }}</span></span></label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="help">No IP lists yet. <a href="{{ url_for('ip_list_new') }}">Create one</a> to reuse the same addresses across apps.</p>
+      {% endif %}
+      {% if errors.get('ip_lists') %}<p class="error">{{ errors['ip_lists'] }}</p>{% endif %}
+      <div class="field{% if errors.get('allowed_sources') %} has-error{% endif %}">
+        <label for="allowed_sources">Extra addresses for this app</label>
+        <textarea id="allowed_sources" name="allowed_sources" rows="2" class="mono" autocapitalize="none" spellcheck="false" placeholder="10.0.0.20&#10;10.0.0.64/27">{{ v.allowed_sources or '' }}</textarea>
+        <p class="help">Addresses or subnets, one per line or comma-separated.</p>
+        {% if errors.get('allowed_sources') %}<p class="error">{{ errors['allowed_sources'] }}</p>{% endif %}
+      </div>
+    </fieldset>
     {{ field('notes', 'Notes', v.notes, errors) }}
     <div class="actions">
       <button class="btn btn-primary" type="submit">{{ 'Save and apply' if editing else ('Create service and certificate' if ext else 'Create app and certificate') }}</button>

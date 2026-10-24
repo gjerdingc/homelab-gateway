@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}IP lists - Traefik Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>IP lists</h1>
+    <p class="muted">Named sets of addresses and subnets. Pick them on any app to allow only those clients.</p>
+  </div>
+  <div class="actions head-actions">
+    <a class="btn btn-primary" href="{{ url_for('ip_list_new') }}">New IP list</a>
+  </div>
+</div>
+<section class="card table-card">
+  <table class="stack">
+    <thead><tr><th>Name</th><th>Entries</th><th>Used by</th></tr></thead>
+    <tbody>
+    {% for l in lists %}
+      <tr>
+        <td data-label="Name"><a class="mono" href="{{ url_for('ip_list_edit', name=l.name) }}">{{ l.name }}</a>{% if l.description %}<div class="help">{{ l.description }}</div>{% endif %}</td>
+        <td data-label="Entries" class="mono">{{ l.sources | join(', ') | truncate(120) }}</td>
+        <td data-label="Used by">{% for slug in used[l.name] %}<a class="mono" href="{{ url_for('app_detail', slug=slug) }}">{{ slug }}</a>{% if not loop.last %}, {% endif %}{% else %}<span class="muted">no apps</span>{% endfor %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3" class="empty">No IP lists yet. <a href="{{ url_for('ip_list_new') }}">Create one</a>, e.g. <span class="mono">admins</span> with your admin workstations.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

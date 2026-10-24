@@ -132,7 +132,7 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [],
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "start_path": "", "allowed_sources": [], "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
+                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
@@ -140,6 +140,7 @@ def create_app(env=None, start_background=True):
                 "extra_sans": f.get("extra_sans", ""),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
                 "start_path": f.get("start_path", ""), "allowed_sources": f.get("allowed_sources", ""),
+                "ip_lists": f.getlist("ip_lists"),
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
                 "security_headers": bool(f.get("security_headers"))}
@@ -148,7 +149,8 @@ def create_app(env=None, start_background=True):
         for key in ("extra_sans", "allowed_sources"):
             if isinstance(values.get(key), list):
                 values = {**values, key: "\n".join(values[key])}
-        return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview)
+        return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview,
+                               lists=manager.ip_lists())
 
     # ---- pages ---------------------------------------------------------------
 
@@ -186,7 +188,7 @@ def create_app(env=None, start_background=True):
         if not errors:
             sample = {**fields, "cert": {"cert_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.crt",
                                          "key_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.key"}}
-            preview = tc.render_app(sample)
+            preview = manager.render_for(sample)
         else:
             flash("Please fix the highlighted fields.", "error")
         return render_form(posted_values(), errors, editing, preview)
@@ -194,14 +196,14 @@ def create_app(env=None, start_background=True):
     @app.get("/apps/<slug>")
     def app_detail(slug):
         a = get_or_404(slug)
-        return render_template("app_detail.html", a=a, cert=manager.cert_details(a),
+        return render_template("app_detail.html", a=a, cert=manager.cert_details(a), lists=manager.ip_list_map(),
                                checks=checks.run_checks(config, manager.api, a), e2e=None,
                                rendered=manager.render_for(a), snippet=DOCS_COMPOSE_SNIPPET)
 
     @app.post("/apps/<slug>/e2e")
     def app_e2e(slug):
         a = get_or_404(slug)
-        return render_template("app_detail.html", a=a, cert=manager.cert_details(a),
+        return render_template("app_detail.html", a=a, cert=manager.cert_details(a), lists=manager.ip_list_map(),
                                checks=checks.run_checks(config, manager.api, a), e2e=checks.e2e_check(config, a),
                                rendered=manager.render_for(a), snippet=DOCS_COMPOSE_SNIPPET)
 
@@ -264,6 +266,67 @@ def create_app(env=None, start_background=True):
             abort(404)
         return send_file(cert["cert_path"], mimetype="application/x-pem-file", as_attachment=True,
                          download_name=f"{a['fqdn']}-fullchain.pem")
+
+    # ---- named IP lists ------------------------------------------------------
+
+    def flash_lists(result, what):
+        updated, unconfirmed = result
+        msg = f"{what}." + (f" Updated {len(updated)} app{'s' if len(updated) != 1 else ''}: {', '.join(updated)}." if updated else "")
+        if unconfirmed:
+            flash(msg + f" Traefik has not confirmed: {', '.join(unconfirmed)}.", "warn")
+        else:
+            flash(msg, "success")
+
+    def render_list_form(values, errors=None, editing=None):
+        if isinstance(values.get("sources"), list):
+            values = {**values, "sources": "\n".join(values["sources"])}
+        return render_template("ip_list_form.html", v=values, errors=errors or {}, editing=editing,
+                               used_by=manager.apps_using(editing) if editing else [])
+
+    def posted_list():
+        f = request.form
+        return {"name": f.get("name", ""), "description": f.get("description", ""), "sources": f.get("sources", "")}
+
+    @app.get("/ip-lists")
+    def ip_lists():
+        return render_template("ip_lists.html", lists=manager.ip_lists(),
+                               used={l["name"]: manager.apps_using(l["name"]) for l in manager.ip_lists()})
+
+    @app.route("/ip-lists/new", methods=["GET", "POST"])
+    def ip_list_new():
+        if request.method == "GET":
+            return render_list_form({"name": "", "description": "", "sources": []})
+        try:
+            flash_lists(manager.create_ip_list(request.form), f"IP list {request.form.get('name', '').strip().lower()} created")
+        except ApplyError as exc:
+            flash(str(exc), "error")
+            return render_list_form(posted_list(), exc.field_errors), 400
+        return redirect(url_for("ip_lists"))
+
+    @app.route("/ip-lists/<name>/edit", methods=["GET", "POST"])
+    def ip_list_edit(name):
+        current = manager.get_ip_list(name)
+        if not current:
+            abort(404)
+        if request.method == "GET":
+            return render_list_form(current, editing=name)
+        try:
+            flash_lists(manager.update_ip_list(name, request.form), f"IP list {name} saved")
+        except ApplyError as exc:
+            flash(str(exc), "error")
+            return render_list_form({**posted_list(), "name": name}, exc.field_errors, name), 400
+        return redirect(url_for("ip_lists"))
+
+    @app.post("/ip-lists/<name>/delete")
+    def ip_list_delete(name):
+        if not manager.get_ip_list(name):
+            abort(404)
+        try:
+            flash_lists(manager.delete_ip_list(name), f"IP list {name} deleted")
+        except ApplyError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("ip_list_edit", name=name))
+        return redirect(url_for("ip_lists"))
 
     @app.get("/status")
     def status():

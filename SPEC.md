@@ -276,7 +276,8 @@ apps:
     backend_tls_skip_verify: false      # only for https backends with untrusted certs
     pass_host_header: true
     lan_only: true                      # attach lan-only middleware (default true)
-    allowed_sources: []                 # optional IPs/CIDRs; non-empty adds an ipAllowList <slug>-sources (empty = any)
+    ip_lists: [admins]                  # optional named lists (see ip_lists below)
+    allowed_sources: []                 # optional extra IPs/CIDRs; lists + these merge into one ipAllowList <slug>-sources (both empty = any)
     security_headers: true              # attach secure-headers middleware (default true)
     enabled: true                       # false = keep config, remove router file
     notes: ""
@@ -288,6 +289,10 @@ apps:
       key_path:  /etc/traefik/certs/grafana/4f2a….key
     created_at: …
     updated_at: …
+ip_lists:                               # named source lists, reusable across apps
+  - name: admins                        # same rules as slug, immutable; can't be deleted while an app uses it
+    description: Admin workstations
+    sources: [10.0.0.20, 10.0.0.64/27]  # at least one entry; editing re-renders and verifies every app using it
 ```
 
 - All writes are atomic: write `*.tmp` in the same dir, `fsync`, `os.replace`.

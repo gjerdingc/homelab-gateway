@@ -126,7 +126,7 @@ Any app or external service can be limited to certain clients. Other clients get
 - **IP lists** (in the menu) are named sets of addresses and subnets, IPv4 or IPv6, e.g. `admins` with your admin workstations or `vpn` with `10.8.0.0/24`. Define a list once, then tick it on each app that should use it.
 - **Extra addresses for this app** on the app form adds entries just for that app.
 - A client is let in if it matches any ticked list or any extra address. The manager merges them into one `ipAllowList` middleware named `<slug>-sources` in the app's file.
-- Editing a list rewrites every app that uses it, and waits for Traefik to load each one. If Traefik rejects one, the list and all files go back to how they were. A list in use can't be deleted, and a list must have at least one entry, so an app can't quietly end up open to everyone.
+- Editing a list rewrites every app that uses it, and waits for Traefik to load each one. If Traefik rejects one, the list and all files go back to how they were. A list in use can't be deleted, and a list must have at least one entry, so an app can't quietly end up open to everyone. If an app still names a list that has gone from `apps.yml` (a hand edit or an old backup), the app admits no one until you fix it, and its page marks the list as missing.
 - The source check comes on top of **LAN only**: with both on, a client must be in `LAN_CIDRS` and match the app's sources. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
 - Traefik checks the address it sees as the source. If clients reach it through NAT or another proxy, every client may appear as the same address.
 

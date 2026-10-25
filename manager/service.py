@@ -9,6 +9,7 @@ import datetime
 import glob
 import os
 import shutil
+import time
 
 import yaml
 
@@ -20,6 +21,8 @@ from validate import validate_app, validate_ip_list
 MANAGER_SLUG = tc.RESERVED
 # The router the bootstrap/renewal of the manager's own cert waits for.
 MANAGER_ROUTER = "traefik-manager"
+# How long one apply waits for Traefik to load everything it wrote, however many files that is.
+WAIT_TIMEOUT = 10.0
 
 
 class ApplyError(Exception):
@@ -108,14 +111,23 @@ class Manager:
     def ip_lists(self):
         return self.store.ip_lists()
 
-    def get_ip_list(self, name):
-        return next((l for l in self.ip_lists() if l["name"] == name), None)
+    def get_ip_list(self, name, lists=None):
+        return next((l for l in (self.ip_lists() if lists is None else lists) if l["name"] == name), None)
 
     def ip_list_map(self, lists=None):
         return {l["name"]: l["sources"] for l in (self.ip_lists() if lists is None else lists)}
 
-    def apps_using(self, name):
-        return [a["slug"] for a in self.apps() if name in (a.get("ip_lists") or [])]
+    def list_usage(self, data=None):
+        """Maps every list name to the slugs of the apps that select it."""
+        data = self.store.load() if data is None else data
+        used = {l["name"]: [] for l in data["ip_lists"]}
+        for a in data["apps"]:
+            for name in a.get("ip_lists") or []:
+                used.setdefault(name, []).append(a["slug"])
+        return used
+
+    def apps_using(self, name, data=None):
+        return self.list_usage(data).get(name, [])
 
     def render_for(self, app, lists=None):
         if app.get("reserved"):
@@ -155,13 +167,6 @@ class Manager:
     def _target_path(self, app):
         return self._core_path if app.get("reserved") else self._app_path(app["slug"])
 
-    def _write_config(self, app):
-        path = self._target_path(app)
-        if app.get("reserved") or app.get("enabled", True):
-            self._write_if_changed(path, self.render_for(app))
-        else:
-            self._remove_managed(path)
-
     def _restore(self, path, text):
         if text is None:
             if os.path.exists(path):
@@ -200,12 +205,10 @@ class Manager:
     def _apply(self, app, prev, reissue, action):
         """Issue (optionally), write config, save apps.yml, then ask Traefik.
 
-        Steps 1-3 failing, or Traefik rejecting the config, rolls everything back."""
+        Any step failing, or Traefik rejecting the config, rolls everything back."""
         slug = app["slug"]
         data = self.store.load()
         saved_data = copy.deepcopy(data)
-        path = self._target_path(app)
-        saved_text = st.read_text(path)
         written = []
         try:
             if reissue:
@@ -213,41 +216,85 @@ class Manager:
             elif prev:
                 app["cert"] = prev.get("cert")
             app["updated_at"] = st.now_iso()
-            self._write_config(app)
-            data["apps"] = [app if a["slug"] == slug else a for a in data["apps"]]
-            if not any(a["slug"] == slug for a in data["apps"]):
-                data["apps"].append(app)
-            self.store.save(data)
+            text = self.render_for(app) if app.get("reserved") or app.get("enabled", True) else None
         except BaseException:
-            self._rollback(path, saved_text, saved_data, written)
+            self._discard(written)
             raise
+        data["apps"] = [app if a["slug"] == slug else a for a in data["apps"]]
+        if not any(a["slug"] == slug for a in data["apps"]):
+            data["apps"].append(app)
 
-        if app.get("enabled", True):
-            marker = tc.revision_marker(self.render_for(app))
-            state, detail = self.api.wait_for_router(MANAGER_ROUTER if app.get("reserved") else slug, marker)
-        else:
-            state, detail = "enabled", "App is disabled; no router written"
-        if state == "rejected":
-            self._rollback(path, saved_text, saved_data, written)
-            self.actions.write(f"{action} {slug}: Traefik rejected the config: {detail}", "ERROR")
-            raise ApplyError(f"Traefik rejected the config, so nothing was changed: {detail}")
-
+        router = MANAGER_ROUTER if app.get("reserved") else slug
+        results = self._commit([(router, self._target_path(app), text)], data, saved_data,
+                               f"{action} {slug}", written)
+        state, detail = results[0][1:] if results else ("enabled", "App is disabled; no router written")
         self._cleanup_certs(app, prev)
         self.actions.write(f"{action} {slug} ({app['fqdn']}); Traefik: {state}"
                            + (f" ({detail})" if state != "enabled" else ""),
                            "INFO" if state == "enabled" else "WARN")
         return Result(app, state, detail)
 
-    def _rollback(self, path, saved_text, saved_data, written):
+    def _commit(self, files, data, saved_data, action, written=()):
+        """Write each (router, path, text) and save apps.yml, then wait for Traefik to load them.
+
+        text None removes the managed file instead, and nothing is waited for. A failed write,
+        or Traefik rejecting any file, restores every file and saved_data and removes the paths
+        in `written`. Returns (router, state, detail) for each file written."""
+        saved = [(router, path, st.read_text(path)) for router, path, _ in files]
         try:
-            self._restore(path, saved_text)
+            for _, path, text in files:
+                if text is None:
+                    self._remove_managed(path)
+                else:
+                    self._write_if_changed(path, text)
+            self.store.save(data)
+        except BaseException:
+            self._rollback(saved, saved_data, written)
+            raise
+
+        results = []
+        for router, state, detail in self._wait_all(
+                [(router, tc.revision_marker(text)) for router, _, text in files if text is not None]):
+            if state != "rejected":
+                results.append((router, state, detail))
+                continue
+            self._rollback(saved, saved_data, written)
+            # Traefik may already have loaded other new files, so check that it is back on the old ones.
+            stale = [r for r, state_, _ in self._wait_all(
+                [(r, tc.revision_marker(old)) for r, _, old in saved if old is not None]) if state_ != "enabled"]
+            msg = f"Traefik rejected the config for {router}: {detail}"
+            if stale:
+                msg += (f". The previous config was put back, but Traefik has not confirmed loading it"
+                        f" for {', '.join(stale)}")
+            self.actions.write(f"{action}: {msg}", "ERROR")
+            raise ApplyError(msg if stale else
+                             f"Traefik rejected the config for {router}, so nothing was changed: {detail}")
+        return results
+
+    def _wait_all(self, targets):
+        """wait_for_router for each (router, marker) under one shared deadline, so the total wait
+        does not grow with the number of files. Yields (router, state, detail) as it goes, so a
+        caller that stops reading skips the remaining waits."""
+        deadline = time.monotonic() + WAIT_TIMEOUT
+        for router, marker in targets:
+            state, detail = self.api.wait_for_router(router, marker,
+                                                     timeout=max(0.0, deadline - time.monotonic()))
+            yield router, state, detail
+
+    def _rollback(self, saved, saved_data, written=()):
+        try:
+            for _, path, text in saved:
+                self._restore(path, text)
             self.store.save(saved_data)
         finally:
-            for p in written:
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
+            self._discard(written)
+
+    def _discard(self, written):
+        for p in written:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
     # ---- user actions ----------------------------------------------------------
 
@@ -334,47 +381,23 @@ class Manager:
 
     # ---- named IP lists --------------------------------------------------------
 
-    def _save_lists(self, data, action):
+    def _save_lists(self, data, saved_data, action):
         """Save apps.yml with changed IP lists and rewrite the app files that use them.
 
-        Waits for Traefik to load each rewritten file; a rejection puts everything back.
+        saved_data is apps.yml as it was, for the rollback if Traefik rejects a file.
         Returns the slugs whose files changed and those Traefik has not confirmed."""
         if not self.config.ok:
             raise ApplyError(self.problem())
-        saved_data = self.store.load()
         changes = []
         for a in data["apps"]:
             if a.get("reserved") or not a.get("enabled", True) or not a.get("cert"):
                 continue
             path, text = self._app_path(a["slug"]), self.render_for(a, data["ip_lists"])
-            old = st.read_text(path)
-            if old != text:
-                changes.append((a["slug"], path, old, text))
-
-        def rollback():
-            try:
-                for _, path, old, _ in changes:
-                    self._restore(path, old)
-            finally:
-                self.store.save(saved_data)
-
-        try:
-            self.store.save(data)
-            for _, path, _, text in changes:
-                st.atomic_write(path, text)
-        except BaseException:
-            rollback()
-            raise
-        unconfirmed = []
-        for slug, _, _, text in changes:
-            state, detail = self.api.wait_for_router(slug, tc.revision_marker(text))
-            if state == "rejected":
-                rollback()
-                self.actions.write(f"{action}: Traefik rejected the config for {slug}: {detail}", "ERROR")
-                raise ApplyError(f"Traefik rejected the config for {slug}, so nothing was changed: {detail}")
-            if state != "enabled":
-                unconfirmed.append(slug)
+            if st.read_text(path) != text:
+                changes.append((a["slug"], path, text))
+        results = self._commit(changes, data, saved_data, action)
         updated = [c[0] for c in changes]
+        unconfirmed = [slug for slug, state, _ in results if state != "enabled"]
         self.actions.write(f"{action}" + (f"; rewrote {', '.join(updated)}" if updated else "")
                            + (f"; not confirmed by Traefik: {', '.join(unconfirmed)}" if unconfirmed else ""),
                            "WARN" if unconfirmed else "INFO")
@@ -386,33 +409,36 @@ class Manager:
             fields, errors = validate_ip_list(form, data["ip_lists"])
             if errors:
                 raise ApplyError("Please fix the highlighted fields.", errors)
+            saved_data = copy.deepcopy(data)
             now = st.now_iso()
             data["ip_lists"].append({**fields, "created_at": now, "updated_at": now})
-            return self._save_lists(data, f"created IP list {fields['name']}")
+            return self._save_lists(data, saved_data, f"created IP list {fields['name']}")
 
     def update_ip_list(self, name, form):
         with self.lock:
             data = self.store.load()
-            prev = next((l for l in data["ip_lists"] if l["name"] == name), None)
+            prev = self.get_ip_list(name, data["ip_lists"])
             if not prev:
                 raise ApplyError(f"IP list {name!r} not found")
             fields, errors = validate_ip_list(form, data["ip_lists"], editing_name=name)
             if errors:
                 raise ApplyError("Please fix the highlighted fields.", errors)
+            saved_data = copy.deepcopy(data)
             new = {**prev, **fields, "updated_at": st.now_iso()}
             data["ip_lists"] = [new if l["name"] == name else l for l in data["ip_lists"]]
-            return self._save_lists(data, f"updated IP list {name}")
+            return self._save_lists(data, saved_data, f"updated IP list {name}")
 
     def delete_ip_list(self, name):
         with self.lock:
             data = self.store.load()
-            if not any(l["name"] == name for l in data["ip_lists"]):
+            if not self.get_ip_list(name, data["ip_lists"]):
                 raise ApplyError(f"IP list {name!r} not found")
-            used = self.apps_using(name)
+            used = self.apps_using(name, data)
             if used:
                 raise ApplyError(f"IP list {name!r} is used by {', '.join(used)}. Remove it from those apps first.")
+            saved_data = copy.deepcopy(data)
             data["ip_lists"] = [l for l in data["ip_lists"] if l["name"] != name]
-            return self._save_lists(data, f"deleted IP list {name}")
+            return self._save_lists(data, saved_data, f"deleted IP list {name}")
 
     # ---- bootstrap, regenerate, renew ------------------------------------------
 

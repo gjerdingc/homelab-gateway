@@ -91,7 +91,7 @@ def e2e_check(config, app, timeout=5):
     detail = f"{status_line}; served cert serial {served}"
     if expected and served != expected:
         return _r("warn", f"{detail} but the stored serial is {expected}")
-    if " 403" in status_line and (app.get("lan_only") or app.get("allowed_sources")):
+    if " 403" in status_line and (app.get("lan_only") or app.get("ip_lists") or app.get("allowed_sources")):
         detail += " (403 is expected here: this check comes from the Docker network, not an allowed source)"
     return _r("ok", detail)
 

@@ -315,3 +315,54 @@ def test_regenerate_includes_named_lists(manager):
     os.unlink(dyn(manager, "app-grafana.yml"))
     manager.regenerate_all()
     assert "10.0.0.20" in open(dyn(manager, "app-grafana.yml")).read()
+
+
+def test_ip_list_waits_share_one_deadline(manager, monkeypatch):
+    import service
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    for slug in ("a1", "a2", "a3"):
+        manager.create_app({**FORM, "slug": slug, "fqdn": f"{slug}.gjecorp.net", "ip_lists": ["admins"]})
+    clock = [0.0]
+    monkeypatch.setattr(service.time, "monotonic", lambda: clock[0])
+    timeouts = []
+
+    def slow(name, marker=None, timeout=10.0, interval=0.5):
+        timeouts.append(timeout)
+        clock[0] += timeout
+        return "pending", "slow"
+
+    manager.api.wait_for_router = slow
+    updated, unconfirmed = manager.update_ip_list("admins", {"sources": "10.0.0.30"})
+    assert unconfirmed == ["a1", "a2", "a3"]
+    assert timeouts == [service.WAIT_TIMEOUT, 0.0, 0.0]
+
+
+def test_ip_list_rejection_waits_for_the_restored_files(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    for slug in ("a1", "a2"):
+        manager.create_app({**FORM, "slug": slug, "fqdn": f"{slug}.gjecorp.net", "ip_lists": ["admins"]})
+    old = {s: tc.revision_marker(open(dyn(manager, f"app-{s}.yml")).read()) for s in ("a1", "a2")}
+    calls = []
+
+    def api(name, marker=None, timeout=10.0, interval=0.5):
+        calls.append((name, marker))
+        if marker in old.values():
+            return "enabled", "ok"
+        return ("rejected", "bad") if name == "a2" else ("enabled", "ok")
+
+    manager.api.wait_for_router = api
+    with pytest.raises(ApplyError, match="nothing was changed"):
+        manager.update_ip_list("admins", {"sources": "10.0.0.99"})
+    assert calls[2:] == [("a1", old["a1"]), ("a2", old["a2"])]
+
+    manager.api.wait_for_router = lambda name, marker=None, timeout=10.0, interval=0.5: ("rejected", "bad")
+    with pytest.raises(ApplyError, match="has not confirmed loading it for a1, a2"):
+        manager.update_ip_list("admins", {"sources": "10.0.0.99"})
+    assert manager.get_ip_list("admins")["sources"] == ["10.0.0.20"]
+
+
+def test_list_usage_maps_every_list(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_ip_list({"name": "vpn", "sources": "10.8.0.0/24"})
+    manager.create_app({**FORM, "ip_lists": ["admins"]})
+    assert manager.list_usage() == {"admins": ["grafana"], "vpn": []}

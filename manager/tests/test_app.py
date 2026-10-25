@@ -149,3 +149,15 @@ def test_external_services_are_listed_separately(client):
 def test_internal_app_with_ip_backend_is_refused_with_a_hint(client):
     r = client.post("/apps/new", data={**FORM, "backend_url": "http://10.0.0.5:80", "csrf_token": token(client)})
     assert r.status_code == 400 and b"choose External service" in r.data
+
+
+def test_a_missing_list_is_flagged_but_not_linked(client):
+    m = client.tm["manager"]
+    m.startup()
+    m.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    m.create_app({**FORM, "ip_lists": ["admins"]})
+    data = m.store.load()
+    data["ip_lists"] = []
+    m.store.save(data)
+    page = client.get("/apps/grafana").get_data(as_text=True)
+    assert "missing" in page and "/ip-lists/admins/edit" not in page

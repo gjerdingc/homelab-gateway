@@ -190,12 +190,12 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
     allowed_sources, err = normalize_sources(form.get("allowed_sources"))
     if err:
         errors["allowed_sources"] = err
-    ip_lists = []
-    for name in _getlist(form, "ip_lists"):
-        if name not in ip_list_names:
-            errors["ip_lists"] = f"IP list {name!r} does not exist"
-        elif name not in ip_lists:
-            ip_lists.append(name)
+    ip_lists = list(dict.fromkeys(_getlist(form, "ip_lists")))
+    unknown = [n for n in ip_lists if n not in ip_list_names]
+    if unknown:
+        errors["ip_lists"] = ("IP list " if len(unknown) == 1 else "IP lists ") + ", ".join(
+            repr(n) for n in unknown) + (" does not exist" if len(unknown) == 1 else " do not exist")
+        ip_lists = [n for n in ip_lists if n in ip_list_names]
 
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:

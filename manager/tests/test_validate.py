@@ -177,3 +177,8 @@ def test_ip_list_validation():
     assert "name" in validate_ip_list({"name": "a", "sources": "10.0.0.1"}, [{"name": "a"}])[1]
     fields, errors = validate_ip_list({"name": "ignored", "sources": "10.0.0.1"}, [{"name": "a"}], editing_name="a")
     assert not errors and fields["name"] == "a"
+
+
+def test_every_unknown_ip_list_is_reported():
+    fields, errors = validate_app({**GOOD, "ip_lists": ["a", "admins", "b"]}, [], DOMAINS, None, ["admins"])
+    assert "'a'" in errors["ip_lists"] and "'b'" in errors["ip_lists"] and fields["ip_lists"] == ["admins"]

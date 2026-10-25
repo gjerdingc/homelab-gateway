@@ -124,3 +124,13 @@ def test_named_lists_and_extra_addresses_merge_into_one_allow_list():
     assert data["http"]["middlewares"]["grafana-sources"]["ipAllowList"]["sourceRange"] == [
         "10.0.0.20", "10.0.0.21", "10.8.0.0/24", "10.9.9.9"]
     assert tc.effective_sources({**APP, "ip_lists": ["admins"]}, lists) == ["10.0.0.20", "10.0.0.21"]
+
+
+def test_a_missing_named_list_denies_everyone_instead_of_opening_the_app():
+    app = {**APP, "lan_only": False, "ip_lists": ["admins"]}
+    data = yaml.safe_load(tc.render_app(app, {}))
+    assert data["http"]["routers"]["grafana"]["middlewares"][0] == "grafana-sources@file"
+    assert data["http"]["middlewares"]["grafana-sources"]["ipAllowList"]["sourceRange"] == tc.DENY_ALL
+    # Also when other lists and extra addresses would still match.
+    assert tc.effective_sources({**app, "ip_lists": ["vpn", "admins"], "allowed_sources": ["10.0.0.20"]},
+                                {"vpn": ["10.8.0.0/24"]}) == tc.DENY_ALL

@@ -289,8 +289,8 @@ def create_app(env=None, start_background=True):
 
     @app.get("/ip-lists")
     def ip_lists():
-        return render_template("ip_lists.html", lists=manager.ip_lists(),
-                               used={l["name"]: manager.apps_using(l["name"]) for l in manager.ip_lists()})
+        data = manager.store.load()
+        return render_template("ip_lists.html", lists=data["ip_lists"], used=manager.list_usage(data))
 
     @app.route("/ip-lists/new", methods=["GET", "POST"])
     def ip_list_new():

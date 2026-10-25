@@ -11,6 +11,8 @@ REV_PREFIX = "tm-rev-"
 HEADER = MARKER + " Do not edit. Changes will be overwritten.\n"
 
 RESERVED = "_manager"
+# The unspecified addresses never appear as a client's source, so this allow list admits no one.
+DENY_ALL = ["0.0.0.0/32", "::/128"]
 
 
 def _yaml(data):
@@ -50,10 +52,13 @@ def host_rule(names):
 def effective_sources(app, ip_lists):
     """The app's selected named lists plus its own entries, de-duplicated. Empty means any source.
 
-    ip_lists maps a list name to its entries."""
+    ip_lists maps a list name to its entries. An app that selects a list which no longer
+    exists gets DENY_ALL, so losing a list never opens the app to every client."""
     out = []
     for name in app.get("ip_lists") or []:
-        out.extend(ip_lists.get(name, []))
+        if name not in ip_lists:
+            return list(DENY_ALL)
+        out.extend(ip_lists[name])
     out.extend(app.get("allowed_sources") or [])
     return list(dict.fromkeys(out))
 

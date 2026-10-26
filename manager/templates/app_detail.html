@@ -44,6 +44,10 @@
       <button class="btn btn-danger" type="submit">Delete</button>
     </form>
   </details>
+  {% else %}
+  <div class="actions">
+    <a class="btn btn-primary" href="{{ url_for('manager_access') }}">Edit access</a>
+  </div>
   {% endif %}
 </section>
 

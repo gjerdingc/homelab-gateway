@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import picker, lockout_confirm %}
+{% block title %}Manager access - Traefik Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Manager access</h1>
+    <p class="muted">Who can reach <span class="mono">{{ v.fqdn }}</span>: this manager and the Traefik dashboard.</p>
+  </div>
+</div>
+<form method="post" action="{{ url_for('manager_access') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <section class="card">
+    <fieldset class="field source-lists">
+      <legend>Allowed sources (optional)</legend>
+      <p class="help">The manager is always limited to <span class="mono">LAN_CIDRS</span>. Leave this empty to allow the whole LAN. Otherwise a client must also match a selected list or one of the extra addresses, or it gets 403.</p>
+      {% if list_options or v.ip_lists %}
+      {{ picker('ip_lists', 'IP lists', list_options, v.ip_lists or [], errors, 'Add an IP list…') }}
+      {% else %}
+      <p class="help">No IP lists yet. <a href="{{ url_for('ip_list_new') }}">Create one</a>, or add addresses below.</p>
+      {% endif %}
+      <div class="field{% if errors.get('allowed_sources') %} has-error{% endif %}">
+        <label for="allowed_sources">Extra addresses</label>
+        <textarea id="allowed_sources" name="allowed_sources" rows="2" class="mono" autocapitalize="none" spellcheck="false" placeholder="10.0.0.20&#10;10.0.0.64/27">{{ v.allowed_sources or '' }}</textarea>
+        <p class="help">Addresses or subnets, one per line or comma-separated.</p>
+        {% if errors.get('allowed_sources') %}<p class="error">{{ errors['allowed_sources'] }}</p>{% endif %}
+      </div>
+    </fieldset>
+    <p class="help">{% if client_ip %}Traefik sees you as <span class="mono">{{ client_ip }}</span>. Saving a change that leaves this address out asks you to confirm first.{% else %}This request did not come through Traefik (break-glass port), so your own address is not checked.{% endif %}
+      If you lock yourself out, use the break-glass host port (8090 in the default <span class="mono">docker-compose.yml</span>) and clear the list here.</p>
+    {{ lockout_confirm(errors) }}
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Save and apply</button>
+      <a class="btn" href="{{ url_for('app_detail', slug=v.slug) }}">Cancel</a>
+    </div>
+  </section>
+</form>
+{% endblock %}

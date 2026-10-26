@@ -44,3 +44,13 @@
   {% if errors.get(name) %}<p class="error">{{ errors[name] }}</p>{% endif %}
 </div>
 {% endmacro %}
+
+{% macro lockout_confirm(errors) %}
+{# Shown after Manager._check_lockout refused a change that would block the user's own address. #}
+{% if errors.get('confirm_lockout') %}
+<div class="field has-error">
+  <label class="check-inline"><input type="checkbox" name="confirm_lockout"> Save anyway. I know how to get back in.</label>
+  <p class="error">{{ errors['confirm_lockout'] }}</p>
+</div>
+{% endif %}
+{% endmacro %}

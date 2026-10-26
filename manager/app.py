@@ -17,7 +17,7 @@ import store as st
 import traefik_config as tc
 from config import Config
 from renewer import Renewer
-from service import ApplyError, Manager
+from service import MANAGER_SLUG, ApplyError, Manager
 from stats import Stats, StatsCollector
 from traefik_api import TraefikAPI, describe
 
@@ -150,8 +150,11 @@ def create_app(env=None, start_background=True):
             if isinstance(values.get(key), list):
                 values = {**values, key: "\n".join(values[key])}
         return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview,
-                               list_options=[{"value": l["name"], "detail": l.get("description")
-                                              or ", ".join(l["sources"])} for l in manager.ip_lists()])
+                               list_options=list_options())
+
+    def list_options():
+        return [{"value": l["name"], "detail": l.get("description") or ", ".join(l["sources"])}
+                for l in manager.ip_lists()]
 
     # ---- pages ---------------------------------------------------------------
 
@@ -284,8 +287,9 @@ def create_app(env=None, start_background=True):
             values = {**values, "sources": "\n".join(values["sources"])}
         data = manager.store.load()
         used_by = manager.apps_using(editing, data) if editing else []
-        app_options = [{"value": a["slug"], "detail": a["fqdn"] + ("" if a.get("enabled", True) else " (disabled)")}
-                       for a in data["apps"] if not a.get("reserved")]
+        app_options = [{"value": a["slug"], "detail": a["fqdn"] + (" (this manager)" if a.get("reserved") else
+                                                                   "" if a.get("enabled", True) else " (disabled)")}
+                       for a in data["apps"]]
         return render_template("ip_list_form.html", v=values, errors=errors or {}, editing=editing,
                                used_by=used_by, app_options=app_options,
                                members=used_by if members is None else members)
@@ -293,6 +297,11 @@ def create_app(env=None, start_background=True):
     def posted_list():
         f = request.form
         return {"name": f.get("name", ""), "description": f.get("description", ""), "sources": f.get("sources", "")}
+
+    def lockout_guard():
+        """For Manager._check_lockout: Traefik sets X-Real-Ip to the client it saw. The break-glass
+        port has no Traefik in front, so the header is absent and nothing is checked."""
+        return request.headers.get("X-Real-Ip"), bool(request.form.get("confirm_lockout"))
 
     def posted_members():
         """Apps picked on the list form, or None when the form had no picker (membership unchanged)."""
@@ -310,7 +319,7 @@ def create_app(env=None, start_background=True):
         if request.method == "GET":
             return render_list_form({"name": "", "description": "", "sources": []})
         try:
-            flash_lists(manager.create_ip_list(request.form, posted_members()), f"IP list {request.form.get('name', '').strip().lower()} created")
+            flash_lists(manager.create_ip_list(request.form, posted_members(), lockout_guard()), f"IP list {request.form.get('name', '').strip().lower()} created")
         except ApplyError as exc:
             flash(str(exc), "error")
             return render_list_form(posted_list(), exc.field_errors, members=posted_members()), 400
@@ -324,11 +333,34 @@ def create_app(env=None, start_background=True):
         if request.method == "GET":
             return render_list_form(current, editing=name)
         try:
-            flash_lists(manager.update_ip_list(name, request.form, posted_members()), f"IP list {name} saved")
+            flash_lists(manager.update_ip_list(name, request.form, posted_members(), lockout_guard()), f"IP list {name} saved")
         except ApplyError as exc:
             flash(str(exc), "error")
             return render_list_form({**posted_list(), "name": name}, exc.field_errors, name, posted_members()), 400
         return redirect(url_for("ip_lists"))
+
+    @app.route("/manager/access", methods=["GET", "POST"])
+    def manager_access():
+        a = manager.get(MANAGER_SLUG)
+        if not a:
+            abort(404)
+        values = a
+        errors = {}
+        if request.method == "POST":
+            try:
+                result = manager.update_manager_access(request.form, lockout_guard())
+            except ApplyError as exc:
+                flash(str(exc), "error")
+                values = {**a, "ip_lists": [n for n in request.form.getlist("ip_lists") if n],
+                          "allowed_sources": request.form.get("allowed_sources", "")}
+                errors = exc.field_errors
+            else:
+                flash_result(result, "access updated")
+                return redirect(url_for("app_detail", slug=MANAGER_SLUG))
+        if isinstance(values.get("allowed_sources"), list):
+            values = {**values, "allowed_sources": "\n".join(values["allowed_sources"])}
+        return render_template("manager_access.html", v=values, errors=errors, client_ip=request.headers.get("X-Real-Ip"),
+                               list_options=list_options()), 400 if errors else 200
 
     @app.post("/ip-lists/<name>/delete")
     def ip_list_delete(name):

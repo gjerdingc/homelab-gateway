@@ -366,3 +366,37 @@ def test_list_usage_maps_every_list(manager):
     manager.create_ip_list({"name": "vpn", "sources": "10.8.0.0/24"})
     manager.create_app({**FORM, "ip_lists": ["admins"]})
     assert manager.list_usage() == {"admins": ["grafana"], "vpn": []}
+
+
+def test_ip_list_membership_is_set_from_the_list(manager):
+    manager.create_ip_list({"name": "vpn", "sources": "10.8.0.0/24"})
+    manager.create_app({**FORM, "ip_lists": ["vpn"]})
+    manager.create_app({**FORM, "slug": "other", "fqdn": "other.gjecorp.net"})
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"}, apps=["grafana", "other"])
+    assert manager.get("grafana")["ip_lists"] == ["vpn", "admins"] and manager.get("other")["ip_lists"] == ["admins"]
+    assert "10.0.0.20" in open(dyn(manager, "app-other.yml")).read()
+
+    updated, _ = manager.update_ip_list("admins", {"sources": "10.0.0.20"}, apps=["grafana"])
+    assert updated == ["other"] and manager.get("other")["ip_lists"] == []
+    assert "other-sources" not in open(dyn(manager, "app-other.yml")).read()
+    # Without apps, membership is left alone.
+    manager.update_ip_list("admins", {"sources": "10.0.0.21"})
+    assert manager.apps_using("admins") == ["grafana"]
+
+
+def test_ip_list_membership_rejects_unknown_and_reserved_apps(manager):
+    manager.startup()
+    with pytest.raises(ApplyError) as exc:
+        manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"}, apps=["nope", "_manager"])
+    assert "'nope'" in exc.value.field_errors["apps"] and "'_manager'" in exc.value.field_errors["apps"]
+    assert manager.ip_lists() == []
+
+
+def test_ip_list_membership_rolls_back_on_rejection(manager):
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    manager.create_app(FORM)
+    before = open(dyn(manager, "app-grafana.yml")).read()
+    manager.api.state, manager.api.detail = "rejected", "bad"
+    with pytest.raises(ApplyError):
+        manager.update_ip_list("admins", {"sources": "10.0.0.20"}, apps=["grafana"])
+    assert manager.get("grafana")["ip_lists"] == [] and open(dyn(manager, "app-grafana.yml")).read() == before

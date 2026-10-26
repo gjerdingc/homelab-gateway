@@ -17,3 +17,30 @@
 {% macro expiry(cert) %}
 {% if cert %}<span class="badge badge-{{ cert.not_after | expiry_class }} mono">{{ cert.not_after[:10] }} · {{ cert.not_after | days_left }}d</span>{% else %}<span class="badge badge-err">no cert</span>{% endif %}
 {% endmacro %}
+
+{% macro picker(name, label, options, selected, errors, placeholder, hint="") %}
+{# A dropdown that adds each pick as a removable chip (static/picker.js). options: dicts with value and detail.
+   Without JavaScript the dropdown itself posts one more pick per save. The empty hidden value is always
+   posted, so the server can tell "nothing picked" from a form without the field. #}
+{% set known = {} %}{% for o in options %}{% set _ = known.update({o.value: o}) %}{% endfor %}
+<div class="field picker{% if errors.get(name) %} has-error{% endif %}" data-picker>
+  <label for="{{ name }}-add">{{ label }}</label>
+  <input type="hidden" name="{{ name }}" value="">
+  <ul class="chips" data-chips>
+    {%- for value in selected %}{% set o = known.get(value) %}
+    <li class="chip"><input type="hidden" name="{{ name }}" value="{{ value }}"><span class="mono">{{ value }}</span>
+      {%- if o and o.detail %}<span class="chip-detail">{{ o.detail }}</span>{% endif %}
+      {%- if not o %} <span class="badge badge-err">missing</span>{% endif -%}
+      <button type="button" class="chip-remove" data-remove aria-label="Remove {{ value }}">&times;</button></li>
+    {%- endfor -%}
+  </ul>
+  <select id="{{ name }}-add" name="{{ name }}" data-add>
+    <option value="">{{ placeholder }}</option>
+    {%- for o in options %}
+    <option value="{{ o.value }}" data-detail="{{ o.detail }}"{% if o.value in selected %} disabled hidden{% endif %}>{{ o.value }}{% if o.detail %} – {{ o.detail }}{% endif %}</option>
+    {%- endfor %}
+  </select>
+  {% if hint %}<p class="help">{{ hint }}</p>{% endif %}
+  {% if errors.get(name) %}<p class="error">{{ errors[name] }}</p>{% endif %}
+</div>
+{% endmacro %}

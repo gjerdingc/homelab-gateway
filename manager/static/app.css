@@ -85,3 +85,14 @@ details summary { cursor: pointer; padding: .25rem 0; }
 .source-lists .checks input { flex: none; }
 .source-lists .checks .help { display: block; margin: .1rem 0 0; }
 .source-lists > .field { margin-top: .5rem; }
+
+/* Dropdown pickers: each pick is a chip with a remove button */
+.chips { list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .5rem; padding: 0; }
+.chips:not(:has(li)) { display: none; }
+.chip { display: inline-flex; align-items: center; gap: .4rem; max-width: 100%; padding: .2rem .25rem .2rem .65rem;
+        border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); font-size: .88rem; }
+.chip-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip-remove { flex: none; width: 1.5rem; height: 1.5rem; border: 0; border-radius: 50%; background: transparent;
+               color: var(--muted); font: inherit; font-size: 1.05rem; line-height: 1; cursor: pointer; }
+.chip-remove:hover { background: var(--border); color: var(--text); }
+.chip-remove:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }

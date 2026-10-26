@@ -16,7 +16,7 @@ import yaml
 import pki
 import store as st
 import traefik_config as tc
-from validate import validate_app, validate_ip_list
+from validate import validate_app, validate_ip_list, validate_members
 
 MANAGER_SLUG = tc.RESERVED
 # The router the bootstrap/renewal of the manager's own cert waits for.
@@ -403,30 +403,59 @@ class Manager:
                            "WARN" if unconfirmed else "INFO")
         return updated, unconfirmed
 
-    def create_ip_list(self, form):
+    def _validate_list(self, form, data, apps, editing_name=None):
+        fields, errors = validate_ip_list(form, data["ip_lists"], editing_name=editing_name)
+        members = None
+        if apps is not None:
+            members, err = validate_members(apps, data["apps"])
+            if err:
+                errors["apps"] = err
+        if errors:
+            raise ApplyError("Please fix the highlighted fields.", errors)
+        return fields, members
+
+    def _set_members(self, data, name, members):
+        """Make exactly the apps in members select list name. Returns a note for the action log."""
+        now = st.now_iso()
+        added, removed = [], []
+        for a in data["apps"]:
+            lists = a.get("ip_lists") or []
+            if a.get("reserved") or (a["slug"] in members) == (name in lists):
+                continue
+            if name in lists:
+                a["ip_lists"] = [l for l in lists if l != name]
+                removed.append(a["slug"])
+            else:
+                a["ip_lists"] = [*lists, name]
+                added.append(a["slug"])
+            a["updated_at"] = now
+        return ((f"; added to {', '.join(added)}" if added else "")
+                + (f"; removed from {', '.join(removed)}" if removed else ""))
+
+    def create_ip_list(self, form, apps=None):
+        """apps, when given, are the slugs of the apps that should use the new list."""
         with self.lock:
             data = self.store.load()
-            fields, errors = validate_ip_list(form, data["ip_lists"])
-            if errors:
-                raise ApplyError("Please fix the highlighted fields.", errors)
+            fields, members = self._validate_list(form, data, apps)
             saved_data = copy.deepcopy(data)
             now = st.now_iso()
             data["ip_lists"].append({**fields, "created_at": now, "updated_at": now})
-            return self._save_lists(data, saved_data, f"created IP list {fields['name']}")
+            note = self._set_members(data, fields["name"], members) if members is not None else ""
+            return self._save_lists(data, saved_data, f"created IP list {fields['name']}{note}")
 
-    def update_ip_list(self, name, form):
+    def update_ip_list(self, name, form, apps=None):
+        """apps, when given, replaces the set of apps that use the list; None leaves it as is."""
         with self.lock:
             data = self.store.load()
             prev = self.get_ip_list(name, data["ip_lists"])
             if not prev:
                 raise ApplyError(f"IP list {name!r} not found")
-            fields, errors = validate_ip_list(form, data["ip_lists"], editing_name=name)
-            if errors:
-                raise ApplyError("Please fix the highlighted fields.", errors)
+            fields, members = self._validate_list(form, data, apps, editing_name=name)
             saved_data = copy.deepcopy(data)
             new = {**prev, **fields, "updated_at": st.now_iso()}
             data["ip_lists"] = [new if l["name"] == name else l for l in data["ip_lists"]]
-            return self._save_lists(data, saved_data, f"updated IP list {name}")
+            note = self._set_members(data, name, members) if members is not None else ""
+            return self._save_lists(data, saved_data, f"updated IP list {name}{note}")
 
     def delete_ip_list(self, name):
         with self.lock:

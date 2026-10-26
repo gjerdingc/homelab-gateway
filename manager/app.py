@@ -140,7 +140,7 @@ def create_app(env=None, start_background=True):
                 "extra_sans": f.get("extra_sans", ""),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
                 "start_path": f.get("start_path", ""), "allowed_sources": f.get("allowed_sources", ""),
-                "ip_lists": f.getlist("ip_lists"),
+                "ip_lists": [n for n in f.getlist("ip_lists") if n],
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
                 "security_headers": bool(f.get("security_headers"))}
@@ -150,7 +150,8 @@ def create_app(env=None, start_background=True):
             if isinstance(values.get(key), list):
                 values = {**values, key: "\n".join(values[key])}
         return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview,
-                               lists=manager.ip_lists())
+                               list_options=[{"value": l["name"], "detail": l.get("description")
+                                              or ", ".join(l["sources"])} for l in manager.ip_lists()])
 
     # ---- pages ---------------------------------------------------------------
 
@@ -277,15 +278,27 @@ def create_app(env=None, start_background=True):
         else:
             flash(msg, "success")
 
-    def render_list_form(values, errors=None, editing=None):
+    def render_list_form(values, errors=None, editing=None, members=None):
+        """members: the apps picked on the form; None shows the apps that use the list now."""
         if isinstance(values.get("sources"), list):
             values = {**values, "sources": "\n".join(values["sources"])}
+        data = manager.store.load()
+        used_by = manager.apps_using(editing, data) if editing else []
+        app_options = [{"value": a["slug"], "detail": a["fqdn"] + ("" if a.get("enabled", True) else " (disabled)")}
+                       for a in data["apps"] if not a.get("reserved")]
         return render_template("ip_list_form.html", v=values, errors=errors or {}, editing=editing,
-                               used_by=manager.apps_using(editing) if editing else [])
+                               used_by=used_by, app_options=app_options,
+                               members=used_by if members is None else members)
 
     def posted_list():
         f = request.form
         return {"name": f.get("name", ""), "description": f.get("description", ""), "sources": f.get("sources", "")}
+
+    def posted_members():
+        """Apps picked on the list form, or None when the form had no picker (membership unchanged)."""
+        if "apps" not in request.form:
+            return None
+        return [s for s in request.form.getlist("apps") if s]
 
     @app.get("/ip-lists")
     def ip_lists():
@@ -297,10 +310,10 @@ def create_app(env=None, start_background=True):
         if request.method == "GET":
             return render_list_form({"name": "", "description": "", "sources": []})
         try:
-            flash_lists(manager.create_ip_list(request.form), f"IP list {request.form.get('name', '').strip().lower()} created")
+            flash_lists(manager.create_ip_list(request.form, posted_members()), f"IP list {request.form.get('name', '').strip().lower()} created")
         except ApplyError as exc:
             flash(str(exc), "error")
-            return render_list_form(posted_list(), exc.field_errors), 400
+            return render_list_form(posted_list(), exc.field_errors, members=posted_members()), 400
         return redirect(url_for("ip_lists"))
 
     @app.route("/ip-lists/<name>/edit", methods=["GET", "POST"])
@@ -311,10 +324,10 @@ def create_app(env=None, start_background=True):
         if request.method == "GET":
             return render_list_form(current, editing=name)
         try:
-            flash_lists(manager.update_ip_list(name, request.form), f"IP list {name} saved")
+            flash_lists(manager.update_ip_list(name, request.form, posted_members()), f"IP list {name} saved")
         except ApplyError as exc:
             flash(str(exc), "error")
-            return render_list_form({**posted_list(), "name": name}, exc.field_errors, name), 400
+            return render_list_form({**posted_list(), "name": name}, exc.field_errors, name, posted_members()), 400
         return redirect(url_for("ip_lists"))
 
     @app.post("/ip-lists/<name>/delete")

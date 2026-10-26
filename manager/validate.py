@@ -123,6 +123,16 @@ def validate_ip_list(form, existing_lists, editing_name=None):
     return {"name": name, "description": description, "sources": sources or []}, errors
 
 
+def validate_members(slugs, existing_apps):
+    """App slugs picked for an IP list. Returns (slugs, error); the reserved entry can't be picked."""
+    known = {a["slug"] for a in existing_apps if not a.get("reserved")}
+    slugs = list(dict.fromkeys(s for s in slugs if s))
+    unknown = [s for s in slugs if s not in known]
+    if not unknown:
+        return slugs, None
+    return [s for s in slugs if s in known], ("No app named " + ", ".join(repr(s) for s in unknown))
+
+
 def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=()):
     """Validate form data. existing_apps is the full list of app records.
 
@@ -190,7 +200,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
     allowed_sources, err = normalize_sources(form.get("allowed_sources"))
     if err:
         errors["allowed_sources"] = err
-    ip_lists = list(dict.fromkeys(_getlist(form, "ip_lists")))
+    ip_lists = list(dict.fromkeys(n for n in _getlist(form, "ip_lists") if n))
     unknown = [n for n in ip_lists if n not in ip_list_names]
     if unknown:
         errors["ip_lists"] = ("IP list " if len(unknown) == 1 else "IP lists ") + ", ".join(

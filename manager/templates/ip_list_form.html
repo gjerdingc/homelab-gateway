@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_macros.html" import field %}
+{% from "_macros.html" import field, picker %}
 {% block title %}{{ 'Edit ' + editing if editing else 'New IP list' }} - Traefik Manager{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <h1>{% if editing %}Edit <span class="mono">{{ editing }}</span>{% else %}New IP list{% endif %}</h1>
-    <p class="muted">{% if used_by %}Saving rewrites the config of {{ used_by | join(', ') }}.{% else %}Pick the list on an app's form to apply it.{% endif %}</p>
+    <p class="muted">Saving rewrites the config of every app that uses the list, or that you add or remove here.</p>
   </div>
 </div>
 <form method="post" action="{{ url_for('ip_list_edit', name=editing) if editing else url_for('ip_list_new') }}">
@@ -19,6 +19,10 @@
       <p class="help">IPv4 or IPv6, one per line or comma-separated. At most 50 entries.</p>
       {% if errors.get('sources') %}<p class="error">{{ errors['sources'] }}</p>{% endif %}
     </div>
+    {% if app_options or members %}
+    {{ picker('apps', 'Apps that use this list', app_options, members, errors, 'Add an app…',
+              'A removed app keeps its other lists and extra addresses. With none left, it accepts any source (LAN only still applies if ticked).') }}
+    {% endif %}
     <div class="actions">
       <button class="btn btn-primary" type="submit">{{ 'Save and apply' if editing else 'Create list' }}</button>
       <a class="btn" href="{{ url_for('ip_lists') }}">Cancel</a>
@@ -29,7 +33,7 @@
 <section class="card">
   <h2>Delete</h2>
   {% if used_by %}
-  <p class="help">Used by {% for slug in used_by %}<a class="mono" href="{{ url_for('app_edit', slug=slug) }}">{{ slug }}</a>{% if not loop.last %}, {% endif %}{% endfor %}. Remove it from those apps before deleting it.</p>
+  <p class="help">Used by {% for slug in used_by %}<a class="mono" href="{{ url_for('app_edit', slug=slug) }}">{{ slug }}</a>{% if not loop.last %}, {% endif %}{% endfor %}. Remove them under Apps that use this list and save, then delete it.</p>
   {% else %}
   <form method="post" action="{{ url_for('ip_list_delete', name=editing) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

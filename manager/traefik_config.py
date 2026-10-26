@@ -110,8 +110,10 @@ def render_app(app, ip_lists=None):
     return _dump(data, slug)
 
 
-def render_core(config, manager_cert):
-    """_core.yml: TLS defaults, shared middlewares and the manager/dashboard routers."""
+def render_core(config, manager_cert, sources=None):
+    """_core.yml: TLS defaults, shared middlewares and the manager/dashboard routers.
+
+    sources, when set, limits the manager and dashboard further, on top of lan-only."""
     middlewares = {
         "lan-only": {"ipAllowList": {"sourceRange": list(config.lan_cidrs)}},
         "secure-headers": {"headers": {
@@ -124,6 +126,9 @@ def render_core(config, manager_cert):
         }},
     }
     guards = ["lan-only"]
+    if sources:
+        middlewares["manager-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
+        guards.append("manager-sources")
     if config.basic_auth_users:
         middlewares["basic-auth"] = {"basicAuth": {"users": list(config.basic_auth_users)}}
         guards.append("basic-auth")

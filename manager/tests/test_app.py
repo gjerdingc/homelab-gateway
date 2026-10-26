@@ -177,7 +177,7 @@ def test_apps_are_added_and_removed_from_the_list_form(client):
     assert m.list_usage()["admins"] == ["a1", "a2"]
     page = client.get("/ip-lists/admins/edit").get_data(as_text=True)
     assert '<input type="hidden" name="apps" value="a1">' in page and '<option value="a3" data-detail="a3.gjecorp.net">' in page
-    assert "_manager" not in page
+    assert "(this manager)" in page
     client.post("/ip-lists/admins/edit", data={"sources": "10.0.0.20", "apps": ["a2", "a3"], "csrf_token": token(client)})
     assert m.list_usage()["admins"] == ["a2", "a3"] and m.get("a1")["ip_lists"] == []
     r = client.post("/ip-lists/admins/edit", data={"sources": "10.0.0.20", "apps": ["a2", "nope"],
@@ -185,3 +185,21 @@ def test_apps_are_added_and_removed_from_the_list_form(client):
     assert r.status_code == 400 and b"No app named &#39;nope&#39;" in r.data
     assert '<input type="hidden" name="apps" value="nope">' in r.get_data(as_text=True)
     assert m.list_usage()["admins"] == ["a2", "a3"]
+
+
+def test_manager_access_page(client):
+    m = client.tm["manager"]
+    m.startup()
+    m.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    assert b"Edit access" in client.get("/apps/_manager").data
+    page = client.get("/manager/access", headers={"X-Real-Ip": "10.0.0.99"}).get_data(as_text=True)
+    assert "Traefik sees you as <span class=\"mono\">10.0.0.99</span>" in page and '<option value="admins"' in page
+    data = {"ip_lists": ["", "admins"], "allowed_sources": "", "csrf_token": token(client, "/manager/access")}
+    r = client.post("/manager/access", data=data, headers={"X-Real-Ip": "10.0.0.99"})
+    assert r.status_code == 400 and b'name="confirm_lockout"' in r.data
+    assert b'<input type="hidden" name="ip_lists" value="admins">' in r.data
+    assert m.get("_manager").get("ip_lists") is None
+    r = client.post("/manager/access", data={**data, "confirm_lockout": "on"}, headers={"X-Real-Ip": "10.0.0.99"})
+    assert r.status_code == 302 and m.get("_manager")["ip_lists"] == ["admins"]
+    assert "_manager" in client.get("/ip-lists").get_data(as_text=True)
+    assert "(this manager)" in client.get("/ip-lists/admins/edit").get_data(as_text=True)

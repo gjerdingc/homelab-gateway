@@ -123,9 +123,31 @@ def validate_ip_list(form, existing_lists, editing_name=None):
     return {"name": name, "description": description, "sources": sources or []}, errors
 
 
+def validate_access(form, ip_list_names):
+    """The allowed-sources fields (named lists plus extra addresses). Returns (fields, errors)."""
+    errors = {}
+    allowed_sources, err = normalize_sources(form.get("allowed_sources"))
+    if err:
+        errors["allowed_sources"] = err
+    ip_lists = list(dict.fromkeys(n for n in _getlist(form, "ip_lists") if n))
+    unknown = [n for n in ip_lists if n not in ip_list_names]
+    if unknown:
+        errors["ip_lists"] = ("IP list " if len(unknown) == 1 else "IP lists ") + ", ".join(
+            repr(n) for n in unknown) + (" does not exist" if len(unknown) == 1 else " do not exist")
+        ip_lists = [n for n in ip_lists if n in ip_list_names]
+    return {"ip_lists": ip_lists, "allowed_sources": allowed_sources or []}, errors
+
+
+def admits(sources, ip):
+    """True when the address is inside one of the allow-list entries."""
+    addr = ipaddress.ip_address(ip)
+    addr = getattr(addr, "ipv4_mapped", None) or addr  # ::ffff:10.0.0.20 is 10.0.0.20
+    return any(addr in ipaddress.ip_network(s, strict=False) for s in sources)
+
+
 def validate_members(slugs, existing_apps):
-    """App slugs picked for an IP list. Returns (slugs, error); the reserved entry can't be picked."""
-    known = {a["slug"] for a in existing_apps if not a.get("reserved")}
+    """App slugs picked for an IP list (the manager's own entry included). Returns (slugs, error)."""
+    known = {a["slug"] for a in existing_apps}
     slugs = list(dict.fromkeys(s for s in slugs if s))
     unknown = [s for s in slugs if s not in known]
     if not unknown:
@@ -197,15 +219,8 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
                        or any(seg in (".", "..") for seg in start_path.split("/"))):
         errors["start_path"] = "Start path must look like /admin/ (letters, digits, - _ . ~ and /)"
 
-    allowed_sources, err = normalize_sources(form.get("allowed_sources"))
-    if err:
-        errors["allowed_sources"] = err
-    ip_lists = list(dict.fromkeys(n for n in _getlist(form, "ip_lists") if n))
-    unknown = [n for n in ip_lists if n not in ip_list_names]
-    if unknown:
-        errors["ip_lists"] = ("IP list " if len(unknown) == 1 else "IP lists ") + ", ".join(
-            repr(n) for n in unknown) + (" does not exist" if len(unknown) == 1 else " do not exist")
-        ip_lists = [n for n in ip_lists if n in ip_list_names]
+    access, access_errors = validate_access(form, ip_list_names)
+    errors.update(access_errors)
 
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:
@@ -221,8 +236,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         "start_path": start_path,
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
-        "ip_lists": ip_lists,
-        "allowed_sources": allowed_sources or [],
+        **access,
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,
     }

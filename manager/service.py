@@ -16,7 +16,7 @@ import yaml
 import pki
 import store as st
 import traefik_config as tc
-from validate import validate_app, validate_ip_list, validate_members
+from validate import admits, validate_access, validate_app, validate_ip_list, validate_members
 
 MANAGER_SLUG = tc.RESERVED
 # The router the bootstrap/renewal of the manager's own cert waits for.
@@ -131,7 +131,7 @@ class Manager:
 
     def render_for(self, app, lists=None):
         if app.get("reserved"):
-            return tc.render_core(self.config, app.get("cert"))
+            return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)))
         return tc.render_app(app, self.ip_list_map(lists))
 
     def cert_expired(self, app):
@@ -166,6 +166,9 @@ class Manager:
 
     def _target_path(self, app):
         return self._core_path if app.get("reserved") else self._app_path(app["slug"])
+
+    def _router(self, app):
+        return MANAGER_ROUTER if app.get("reserved") else app["slug"]
 
     def _restore(self, path, text):
         if text is None:
@@ -224,8 +227,7 @@ class Manager:
         if not any(a["slug"] == slug for a in data["apps"]):
             data["apps"].append(app)
 
-        router = MANAGER_ROUTER if app.get("reserved") else slug
-        results = self._commit([(router, self._target_path(app), text)], data, saved_data,
+        results = self._commit([(self._router(app), self._target_path(app), text)], data, saved_data,
                                f"{action} {slug}", written)
         state, detail = results[0][1:] if results else ("enabled", "App is disabled; no router written")
         self._cleanup_certs(app, prev)
@@ -390,14 +392,15 @@ class Manager:
             raise ApplyError(self.problem())
         changes = []
         for a in data["apps"]:
-            if a.get("reserved") or not a.get("enabled", True) or not a.get("cert"):
+            if not a.get("reserved") and (not a.get("enabled", True) or not a.get("cert")):
                 continue
-            path, text = self._app_path(a["slug"]), self.render_for(a, data["ip_lists"])
+            path, text = self._target_path(a), self.render_for(a, data["ip_lists"])
             if st.read_text(path) != text:
-                changes.append((a["slug"], path, text))
+                changes.append((self._router(a), path, text))
         results = self._commit(changes, data, saved_data, action)
-        updated = [c[0] for c in changes]
-        unconfirmed = [slug for slug, state, _ in results if state != "enabled"]
+        slug_of = {MANAGER_ROUTER: MANAGER_SLUG}
+        updated = [slug_of.get(c[0], c[0]) for c in changes]
+        unconfirmed = [slug_of.get(r, r) for r, state, _ in results if state != "enabled"]
         self.actions.write(f"{action}" + (f"; rewrote {', '.join(updated)}" if updated else "")
                            + (f"; not confirmed by Traefik: {', '.join(unconfirmed)}" if unconfirmed else ""),
                            "WARN" if unconfirmed else "INFO")
@@ -414,13 +417,33 @@ class Manager:
             raise ApplyError("Please fix the highlighted fields.", errors)
         return fields, members
 
+    def _check_lockout(self, data, guard):
+        """Refuse a change that would shut the address saving it out of the manager.
+
+        guard is (client_ip, confirmed): client_ip is the address Traefik saw (None when the
+        request did not come through Traefik, e.g. the break-glass port), and confirmed means
+        the user ticked that they know how to get back in."""
+        client_ip, confirmed = guard or (None, False)
+        mgr = next((a for a in data["apps"] if a.get("reserved")), None)
+        if not client_ip or confirmed or not mgr:
+            return
+        sources = tc.effective_sources(mgr, self.ip_list_map(data["ip_lists"]))
+        try:
+            if not sources or admits(sources, client_ip):
+                return
+        except ValueError:
+            return
+        msg = (f"This would block your own address {client_ip} from the manager. Tick the box to save anyway; "
+               "you can still get in through the break-glass host port (8090 in the default docker-compose.yml).")
+        raise ApplyError(msg, {"confirm_lockout": msg})
+
     def _set_members(self, data, name, members):
         """Make exactly the apps in members select list name. Returns a note for the action log."""
         now = st.now_iso()
         added, removed = [], []
         for a in data["apps"]:
             lists = a.get("ip_lists") or []
-            if a.get("reserved") or (a["slug"] in members) == (name in lists):
+            if (a["slug"] in members) == (name in lists):
                 continue
             if name in lists:
                 a["ip_lists"] = [l for l in lists if l != name]
@@ -432,8 +455,9 @@ class Manager:
         return ((f"; added to {', '.join(added)}" if added else "")
                 + (f"; removed from {', '.join(removed)}" if removed else ""))
 
-    def create_ip_list(self, form, apps=None):
-        """apps, when given, are the slugs of the apps that should use the new list."""
+    def create_ip_list(self, form, apps=None, guard=None):
+        """apps, when given, are the slugs of the apps that should use the new list.
+        guard: see _check_lockout."""
         with self.lock:
             data = self.store.load()
             fields, members = self._validate_list(form, data, apps)
@@ -441,10 +465,12 @@ class Manager:
             now = st.now_iso()
             data["ip_lists"].append({**fields, "created_at": now, "updated_at": now})
             note = self._set_members(data, fields["name"], members) if members is not None else ""
+            self._check_lockout(data, guard)
             return self._save_lists(data, saved_data, f"created IP list {fields['name']}{note}")
 
-    def update_ip_list(self, name, form, apps=None):
-        """apps, when given, replaces the set of apps that use the list; None leaves it as is."""
+    def update_ip_list(self, name, form, apps=None, guard=None):
+        """apps, when given, replaces the set of apps that use the list; None leaves it as is.
+        guard: see _check_lockout."""
         with self.lock:
             data = self.store.load()
             prev = self.get_ip_list(name, data["ip_lists"])
@@ -455,7 +481,25 @@ class Manager:
             new = {**prev, **fields, "updated_at": st.now_iso()}
             data["ip_lists"] = [new if l["name"] == name else l for l in data["ip_lists"]]
             note = self._set_members(data, name, members) if members is not None else ""
+            self._check_lockout(data, guard)
             return self._save_lists(data, saved_data, f"updated IP list {name}{note}")
+
+    def update_manager_access(self, form, guard=None):
+        """Set the IP lists and extra addresses that may reach the manager and the dashboard.
+
+        They apply on top of LAN_CIDRS. guard: see _check_lockout."""
+        self._require_ready()
+        with self.lock:
+            data = self.store.load()
+            prev = next((a for a in data["apps"] if a.get("reserved")), None)
+            if not prev:
+                raise ApplyError("The manager's own entry does not exist yet; restart the manager")
+            fields, errors = validate_access(form, [l["name"] for l in data["ip_lists"]])
+            if errors:
+                raise ApplyError("Please fix the highlighted fields.", errors)
+            app = {**copy.deepcopy(prev), **fields}
+            self._check_lockout({**data, "apps": [app if a.get("reserved") else a for a in data["apps"]]}, guard)
+            return self._apply(app, prev, False, "updated access for")
 
     def delete_ip_list(self, name):
         with self.lock:
@@ -503,7 +547,7 @@ class Manager:
         with self.lock:
             apps = self.apps()
             mgr = next((a for a in apps if a.get("reserved")), None)
-            desired = {"_core.yml": tc.render_core(self.config, mgr.get("cert") if mgr else None)}
+            desired = {"_core.yml": self.render_for(mgr) if mgr else tc.render_core(self.config, None)}
             for a in apps:
                 if not a.get("reserved") and a.get("enabled", True) and a.get("cert"):
                     desired[tc.app_filename(a["slug"])] = self.render_for(a)

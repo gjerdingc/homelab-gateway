@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import field, picker %}
+{% from "_macros.html" import field, picker, lockout_confirm %}
 {% block title %}{{ 'Edit ' + editing if editing else 'New IP list' }} - Traefik Manager{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -23,6 +23,7 @@
     {{ picker('apps', 'Apps that use this list', app_options, members, errors, 'Add an app…',
               'A removed app keeps its other lists and extra addresses. With none left, it accepts any source (LAN only still applies if ticked).') }}
     {% endif %}
+    {{ lockout_confirm(errors) }}
     <div class="actions">
       <button class="btn btn-primary" type="submit">{{ 'Save and apply' if editing else 'Create list' }}</button>
       <a class="btn" href="{{ url_for('ip_lists') }}">Cancel</a>

@@ -384,11 +384,11 @@ def test_ip_list_membership_is_set_from_the_list(manager):
     assert manager.apps_using("admins") == ["grafana"]
 
 
-def test_ip_list_membership_rejects_unknown_and_reserved_apps(manager):
+def test_ip_list_membership_rejects_unknown_apps(manager):
     manager.startup()
     with pytest.raises(ApplyError) as exc:
         manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"}, apps=["nope", "_manager"])
-    assert "'nope'" in exc.value.field_errors["apps"] and "'_manager'" in exc.value.field_errors["apps"]
+    assert exc.value.field_errors["apps"] == "No app named 'nope'"
     assert manager.ip_lists() == []
 
 
@@ -400,3 +400,55 @@ def test_ip_list_membership_rolls_back_on_rejection(manager):
     with pytest.raises(ApplyError):
         manager.update_ip_list("admins", {"sources": "10.0.0.20"}, apps=["grafana"])
     assert manager.get("grafana")["ip_lists"] == [] and open(dyn(manager, "app-grafana.yml")).read() == before
+
+
+def core(manager):
+    return yaml.safe_load(open(dyn(manager, "_core.yml")).read())
+
+
+def test_manager_access_limits_the_manager_and_dashboard(manager):
+    manager.startup()
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    result = manager.update_manager_access({"ip_lists": ["admins"], "allowed_sources": "10.0.0.30"})
+    assert result.verified and manager.api.calls[-1] == "traefik-manager"
+    http = core(manager)["http"]
+    assert http["middlewares"]["manager-sources"] == {"ipAllowList": {"sourceRange": ["10.0.0.20", "10.0.0.30"]}}
+    for router in ("traefik-manager", "traefik-dashboard"):
+        assert http["routers"][router]["middlewares"] == ["lan-only@file", "manager-sources@file"]
+    # Kept across a renewal and a restart.
+    manager.renew_app("_manager")
+    manager.regenerate_all()
+    assert "manager-sources" in core(manager)["http"]["middlewares"]
+    manager.update_manager_access({"ip_lists": [], "allowed_sources": ""})
+    assert "manager-sources" not in core(manager)["http"]["middlewares"]
+
+
+def test_ip_list_edits_and_membership_reach_the_manager(manager):
+    manager.startup()
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"}, apps=["_manager"])
+    assert manager.get("_manager")["ip_lists"] == ["admins"]
+    updated, _ = manager.update_ip_list("admins", {"sources": "10.0.0.21"})
+    assert updated == ["_manager"] and manager.api.calls[-1] == "traefik-manager"
+    assert core(manager)["http"]["middlewares"]["manager-sources"]["ipAllowList"]["sourceRange"] == ["10.0.0.21"]
+    with pytest.raises(ApplyError, match="_manager"):
+        manager.delete_ip_list("admins")
+
+
+def test_lockout_guard(manager):
+    manager.startup()
+    manager.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    form = {"ip_lists": ["admins"], "allowed_sources": ""}
+    with pytest.raises(ApplyError) as exc:
+        manager.update_manager_access(form, ("10.0.0.99", False))
+    assert "10.0.0.99" in exc.value.field_errors["confirm_lockout"] and manager.get("_manager").get("ip_lists") is None
+    manager.update_manager_access(form, ("::ffff:10.0.0.20", False))  # still admitted
+    # Editing a list the manager uses, or adding the manager to a list, is checked too.
+    with pytest.raises(ApplyError, match="block your own address"):
+        manager.update_ip_list("admins", {"sources": "10.0.0.21"}, guard=("10.0.0.20", False))
+    manager.update_ip_list("admins", {"sources": "10.0.0.21"}, guard=("10.0.0.20", True))  # confirmed
+    manager.update_manager_access({"ip_lists": [], "allowed_sources": ""}, ("10.0.0.20", False))
+    with pytest.raises(ApplyError, match="block your own address"):
+        manager.create_ip_list({"name": "vpn", "sources": "10.8.0.0/24"}, apps=["_manager"], guard=("10.0.0.20", False))
+    # No address (the break-glass port) is not checked.
+    manager.update_manager_access(form, None)
+    assert manager.get("_manager")["ip_lists"] == ["admins"]

@@ -20,6 +20,31 @@ CERT_SOURCES = ("internal", "letsencrypt")
 DEFAULT_RESOLVER = "letsencrypt"
 
 
+# Google sign-in (oauth2-proxy). Apps that require it get the "sso" chain: first strip any identity
+# headers the client sent, then ask oauth2-proxy. It answers 202 with the user's headers, or sends
+# the browser to Google. Defined in _core.yml only when SSO_ENABLED is on; an app that still asks for
+# it after that is switched off gets a router error from Traefik (closed), not an open route.
+SSO_MIDDLEWARE = "sso"
+SSO_HEADERS = ["X-Auth-Request-User", "X-Auth-Request-Email"]
+SSO_STRIPPED = [*SSO_HEADERS, "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username",
+                "X-Auth-Request-Access-Token", "X-Forwarded-User", "X-Forwarded-Email"]
+
+
+def requires_sign_in(app):
+    return bool(app.get("require_sign_in"))
+
+
+def sso_middlewares(auth_url):
+    return {
+        # A header set to "" is removed from the request.
+        "sso-strip": {"headers": {"customRequestHeaders": {h: "" for h in SSO_STRIPPED}}},
+        # oauth2-proxy at / with a static 202 upstream: signed in -> 202 plus the identity headers,
+        # otherwise a redirect to Google that comes back to the page the user asked for.
+        "sso-auth": {"forwardAuth": {"address": f"{auth_url}/", "authResponseHeaders": list(SSO_HEADERS)}},
+        SSO_MIDDLEWARE: {"chain": {"middlewares": ["sso-strip@file", "sso-auth@file"]}},
+    }
+
+
 def uses_letsencrypt(app):
     return app.get("cert_source") == "letsencrypt"
 
@@ -83,6 +108,8 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
     sources = effective_sources(app, ip_lists or {})
     if sources:
         middlewares.append(f"{slug}-sources@file")
+    if requires_sign_in(app):
+        middlewares.append(f"{SSO_MIDDLEWARE}@file")
     start_path = app.get("start_path")
     if start_path:
         middlewares.append(f"{slug}-start@file")
@@ -137,6 +164,8 @@ def render_core(config, manager_cert, sources=None):
             "referrerPolicy": "same-origin",
         }},
     }
+    if config.sso_enabled:
+        middlewares.update(sso_middlewares(config.sso_auth_url))
     guards = ["lan-only"]
     if sources:
         middlewares["manager-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}

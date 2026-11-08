@@ -223,3 +223,22 @@ def test_letsencrypt_option_on_form_and_detail(client, monkeypatch):
     assert "certResolver: letsencrypt" in page and "R11" in page and "Download fullchain.pem" not in page
     assert ">Let's Encrypt</span>" in client.get("/").get_data(as_text=True)
     assert client.get("/status").status_code == 200
+
+
+def test_sign_in_option_on_form_detail_list_and_status(client):
+    mgr = client.tm["manager"]
+    mgr.startup()
+    page = client.get("/apps/new").get_data(as_text=True)
+    assert 'name="require_sign_in"' in page and "Not set up yet. Deploy oauth2-proxy" in page
+
+    mgr.config.sso_enabled, mgr.config.sso_domain = True, "gjecorp.net"
+    page = client.get("/apps/new").get_data(as_text=True)
+    assert "Works for names under <span class=\"mono\">gjecorp.net</span>" in page
+    r = client.post("/apps/new", data={**FORM, "require_sign_in": "on", "csrf_token": token(client)})
+    assert r.status_code == 302
+    page = client.get("/apps/grafana").get_data(as_text=True)
+    assert "sso@file" in page and ">Google</span>" in page
+    assert ">sign-in</span>" in client.get("/").get_data(as_text=True)
+    assert 'href="/apps/grafana">grafana</a>' in client.get("/status").get_data(as_text=True)
+    page = client.get("/apps/grafana/edit").get_data(as_text=True)
+    assert 'name="require_sign_in" checked' in page

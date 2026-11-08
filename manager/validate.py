@@ -156,11 +156,21 @@ def validate_members(slugs, existing_apps):
     return [s for s in slugs if s in known], ("No app named " + ", ".join(repr(s) for s in unknown))
 
 
+def _same_endpoint(a, b):
+    """True when two URLs point at the same host and port."""
+    pa, pb = urlparse(a), urlparse(b)
+    default = {"http": 80, "https": 443}
+    return (pa.hostname == pb.hostname
+            and (pa.port or default.get(pa.scheme)) == (pb.port or default.get(pb.scheme)))
+
+
 def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=(),
-                 letsencrypt_enabled=False):
+                 letsencrypt_enabled=False, sso_domain=None, sso_auth_url=None):
     """Validate form data. existing_apps is the full list of app records.
 
     letsencrypt_enabled: whether Traefik has the Let's Encrypt resolver (LETSENCRYPT_ENABLED).
+    sso_domain: the oauth2-proxy cookie domain when Google sign-in is set up (SSO_ENABLED), else None.
+    sso_auth_url: oauth2-proxy's address, so its own route can't be put behind itself.
 
     Returns (app_fields, errors) where errors maps a field name to a message."""
     errors = {}
@@ -231,6 +241,17 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         errors["cert_source"] = ("Let's Encrypt is not set up. Set LETSENCRYPT_ENABLED=true and the "
                                  "Cloudflare token in the stack (see the README), or choose the internal CA.")
 
+    require_sign_in = bool(form.get("require_sign_in"))
+    if require_sign_in:
+        if not sso_domain:
+            errors["require_sign_in"] = ("Google sign-in is not set up. Set SSO_ENABLED=true and SSO_DOMAIN "
+                                         "in the stack (see the README).")
+        elif outside := [n for n in [fqdn, *sans] if n and not in_domains(n, [sso_domain])]:
+            errors["require_sign_in"] = (f"Sign-in only works for names under {sso_domain}, where the sign-in "
+                                         f"cookie is valid: {', '.join(outside)}")
+        elif sso_auth_url and backend and _same_endpoint(backend, sso_auth_url):
+            errors["require_sign_in"] = "This is the oauth2-proxy route itself; it cannot require sign-in"
+
     access, access_errors = validate_access(form, ip_list_names)
     errors.update(access_errors)
 
@@ -249,6 +270,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         "start_path": start_path,
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
+        "require_sign_in": require_sign_in,
         **access,
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,

@@ -319,7 +319,9 @@ class Manager:
 
     def validate(self, form, editing_slug=None):
         return validate_app(form, self.apps(), self.config.allowed_domains, editing_slug,
-                            [l["name"] for l in self.ip_lists()], self.config.letsencrypt_enabled)
+                            [l["name"] for l in self.ip_lists()], self.config.letsencrypt_enabled,
+                            self.config.sso_domain if self.config.sso_enabled else None,
+                            self.config.sso_auth_url)
 
     def create_app(self, form):
         self._require_ready()
@@ -622,6 +624,9 @@ class Manager:
         for path in sorted(glob.glob(self._dyn("manual-*.yml"))):
             out.append({"name": os.path.basename(path), "content": st.read_text(path) or ""})
         return out
+
+    def sign_in_apps(self):
+        return [a for a in self.user_apps() if tc.requires_sign_in(a)]
 
     def letsencrypt_apps(self):
         return [a for a in self.user_apps() if tc.uses_letsencrypt(a)]

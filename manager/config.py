@@ -44,6 +44,11 @@ class Config:
         # docker-compose.yml). The manager only needs to know it is set up, so the form can offer it.
         self.letsencrypt_enabled = _bool(env.get("LETSENCRYPT_ENABLED"), False)
         self.letsencrypt_resolver = env.get("LETSENCRYPT_RESOLVER", "letsencrypt").strip() or "letsencrypt"
+        # Google sign-in through oauth2-proxy (oauth2-proxy/docker-compose.yml). Traefik asks it about
+        # every request to an app that requires sign-in (ForwardAuth). Its cookie only covers SSO_DOMAIN.
+        self.sso_enabled = _bool(env.get("SSO_ENABLED"), False)
+        self.sso_domain = env.get("SSO_DOMAIN", "").strip().lower().lstrip(".").rstrip(".")
+        self.sso_auth_url = env.get("SSO_AUTH_URL", "http://oauth2-proxy:4180").strip().rstrip("/")
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
         self.lan_cidrs = _split(env.get("LAN_CIDRS"))
         self.ca_cert_file = env.get("CA_CERT_FILE", "").strip()
@@ -120,6 +125,16 @@ class Config:
                 break
         if not re.match(r"^[A-Za-z0-9_-]{1,64}$", self.letsencrypt_resolver):
             e.append(f"LETSENCRYPT_RESOLVER {self.letsencrypt_resolver!r} must be letters, digits, - or _")
+        if self.sso_enabled:
+            if not self.sso_domain:
+                e.append("SSO_DOMAIN is required when SSO_ENABLED is on (the oauth2-proxy cookie domain, e.g. oplassen.net)")
+            elif not HOSTNAME_RE.match(self.sso_domain):
+                e.append(f"SSO_DOMAIN {self.sso_domain!r} is not a valid domain")
+            elif self.allowed_domains and not in_domains(self.sso_domain, self.allowed_domains):
+                e.append(f"SSO_DOMAIN {self.sso_domain!r} is outside ALLOWED_DOMAINS")
+            parsed = urlparse(self.sso_auth_url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.path not in ("", "/"):
+                e.append(f"SSO_AUTH_URL {self.sso_auth_url!r} must look like http://oauth2-proxy:4180")
         if not self.ca_key_password:
             self.warnings.append("CA_KEY_PASSWORD is not set; this only works if the CA key is not encrypted")
         if not os.path.isfile(self.root_ca_path):

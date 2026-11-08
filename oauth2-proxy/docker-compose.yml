@@ -13,7 +13,9 @@
 # If the file is missing, Docker creates a directory in its place and oauth2-proxy fails to start.
 #
 # Traefik reaches the container as http://oauth2-proxy:4180 on the proxy network.
-# No host port: only Traefik may talk to it.
+# No host port: only Traefik may talk to it. Then, in the Traefik stack, set SSO_ENABLED=true and
+# SSO_DOMAIN, add the app auth.<SSO_DOMAIN> -> http://oauth2-proxy:4180, and tick
+# "Require Google sign-in" on the apps to protect. See "Google sign-in" in the README.
 services:
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1

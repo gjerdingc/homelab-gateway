@@ -113,7 +113,8 @@ def create_app(env=None, start_background=True):
         for w in config.warnings:
             banners.append(("warn", w))
         return {"csrf_token": csrf_token, "banners": banners, "manager_fqdn": config.manager_fqdn,
-                "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled}
+                "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled,
+                "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain}
 
     # ---- helpers -------------------------------------------------------------
 
@@ -135,7 +136,7 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "internal",
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
+                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
@@ -146,6 +147,7 @@ def create_app(env=None, start_background=True):
                 "ip_lists": [n for n in f.getlist("ip_lists") if n],
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
+                "require_sign_in": bool(f.get("require_sign_in")),
                 "security_headers": bool(f.get("security_headers"))}
 
     def render_form(values, errors=None, editing=None, preview=None):
@@ -386,7 +388,7 @@ def create_app(env=None, start_background=True):
             version, api_error = None, describe(exc)
         return render_template("status.html", ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
                                version=version, api_error=api_error, renewer=renewer, config=config,
-                               le_apps=manager.letsencrypt_apps(),
+                               le_apps=manager.letsencrypt_apps(), sso_apps=manager.sign_in_apps(),
                                manual=manager.manual_files(), now=pki.iso(pki.utcnow()))
 
     @app.post("/status/regenerate")

@@ -46,6 +46,14 @@
     </fieldset>
   </section>
   <section class="card">
+    <h2>Sign-in</h2>
+    <div class="checks{% if errors.get('require_sign_in') %} has-error{% endif %}">
+      <label{% if not sso_enabled and not v.require_sign_in %} class="is-disabled"{% endif %}><input type="checkbox" name="require_sign_in" {% if v.require_sign_in %}checked{% endif %}{% if not sso_enabled and not v.require_sign_in %} disabled{% endif %}> Require Google sign-in</label>
+      <p class="help">{% if sso_enabled %}Visitors sign in with Google first; only the accounts oauth2-proxy allows get through. The app receives the user in the <span class="mono">X-Auth-Request-Email</span> and <span class="mono">X-Auth-Request-User</span> headers. Works for names under <span class="mono">{{ sso_domain }}</span> only.{% else %}Not set up yet. Deploy oauth2-proxy and set <span class="mono">SSO_ENABLED</span> and <span class="mono">SSO_DOMAIN</span> in the stack, see the README.{% endif %}</p>
+      {% if errors.get('require_sign_in') %}<p class="error">{{ errors['require_sign_in'] }}</p>{% endif %}
+    </div>
+  </section>
+  <section class="card">
     <h2>Options</h2>
     <div class="checks">
       <label><input type="checkbox" name="lan_only" {% if v.lan_only %}checked{% endif %}> LAN only (403 from outside the allowed networks)</label>

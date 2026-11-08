@@ -28,6 +28,7 @@
       {% for name in a.ip_lists or [] %}{% if name in lists %}<a class="mono" href="{{ url_for('ip_list_edit', name=name) }}">{{ name }}</a>{% else %}<span class="mono">{{ name }}</span> <span class="badge badge-err" title="This list no longer exists, so the app admits no one. Edit the app to remove it.">missing</span>{% endif %}{% if not loop.last or a.allowed_sources %}, {% endif %}{% endfor %}
       {% if a.allowed_sources %}<span class="mono">{{ a.allowed_sources | join(', ') }}</span>{% endif %}
       {% if not a.ip_lists and not a.allowed_sources %}Any{% endif %}</dd>
+    {% if not a.reserved %}<dt>Sign-in</dt><dd>{% if a.require_sign_in %}<span class="badge badge-ok">Google</span>{% if not sso_enabled %} <span class="badge badge-err" title="SSO_ENABLED is off, so Traefik rejects this route until it is turned back on or sign-in is removed from the app">not set up</span>{% endif %}{% else %}None{% endif %}</dd>{% endif %}
     <dt>Options</dt><dd>{{ 'LAN only' if a.lan_only else 'Open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</dd>
     {% if a.notes %}<dt>Notes</dt><dd>{{ a.notes }}</dd>{% endif %}
   </dl>

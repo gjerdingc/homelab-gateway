@@ -510,3 +510,40 @@ def test_letsencrypt_apps_survive_regenerate_disable_and_list_edits(le_manager):
     assert "cert" not in m.get("grafana") and os.path.exists(dyn(m, "app-grafana.yml"))
     renewed, errors = m.renew_due()
     assert "grafana" not in renewed and not errors
+
+
+@pytest.fixture
+def sso_manager(tmp_path, pki_session):
+    from config import Config
+    from pki import load_ca
+    from service import Manager
+    import store as st
+    from conftest import FakeAPI
+
+    config = Config(make_env(tmp_path, pki_session, ALLOWED_DOMAINS="gjecorp.net,oplassen.net",
+                             SSO_ENABLED="true", SSO_DOMAIN="oplassen.net"))
+    assert config.ok, config.errors
+    ca, err = load_ca(config)
+    m = Manager(config, ca, err, st.Store(config.data_dir), st.ActionLog(config.data_dir), FakeAPI())
+    m.startup()
+    return m
+
+
+SSO_FORM = {**FORM, "fqdn": "grafana.oplassen.net", "require_sign_in": "on"}
+
+
+def test_sign_in_app_is_written_with_the_sso_chain(sso_manager):
+    m = sso_manager
+    assert "sso-auth" in yaml.safe_load(open(dyn(m, "_core.yml")).read())["http"]["middlewares"]
+    assert m.create_app(SSO_FORM).verified
+    assert m.get("grafana")["require_sign_in"] is True and [a["slug"] for a in m.sign_in_apps()] == ["grafana"]
+    router = yaml.safe_load(open(dyn(m, "app-grafana.yml")).read())["http"]["routers"]["grafana"]
+    assert "sso@file" in router["middlewares"]
+    m.update_app("grafana", {**SSO_FORM, "require_sign_in": ""})
+    assert "sso@file" not in open(dyn(m, "app-grafana.yml")).read() and m.sign_in_apps() == []
+
+
+def test_sign_in_refused_when_not_set_up(manager):
+    with pytest.raises(ApplyError) as exc:
+        manager.create_app({**FORM, "require_sign_in": "on"})
+    assert "require_sign_in" in exc.value.field_errors and manager.apps() == []

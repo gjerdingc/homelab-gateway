@@ -64,6 +64,7 @@ Optional: `PROXY_NETWORK` (`proxy`), `DASHBOARD_ENABLED` (`true`), `CERT_VALIDIT
 `BASIC_AUTH_USERS` (htpasswd entries, e.g. from `htpasswd -nB me`), `TRAEFIK_API_URL`, `TRAEFIK_HTTPS_PORT`,
 `STATS_RETENTION_DAYS` (`90`), `ACCESS_LOG_MAX_MB` (`50`).
 For Let's Encrypt: `LETSENCRYPT_ENABLED`, `CF_DNS_API_TOKEN`, `ACME_EMAIL`, `ACME_CA_SERVER` (see [Let's Encrypt certificates](#lets-encrypt-certificates)).
+For Google sign-in: `SSO_ENABLED`, `SSO_DOMAIN`, `SSO_AUTH_URL` (see [Google sign-in](#google-sign-in)).
 
 5. Deploy. Use **Pull and redeploy** to update later; the manager image is rebuilt each time.
 6. Open `https://traefik.gjecorp.net`. If it does not load, use `http://10.0.0.250:8090` and look at **Status** and **Log**.
@@ -174,6 +175,49 @@ On the host and in Portainer:
 - Wildcards are still not supported; each app gets a certificate for its FQDN and extra names.
 - The manager's own name (`MANAGER_FQDN`) keeps its internal certificate.
 
+## Google sign-in
+
+Apps you pick can require a Google sign-in before Traefik lets a request through. The sign-in itself is done by **oauth2-proxy**, a separate stack ([`oauth2-proxy/docker-compose.yml`](oauth2-proxy/docker-compose.yml)). The manager only adds a ForwardAuth middleware to those apps' routers.
+
+How a request goes: the app's router runs `sso@file`, which first removes any `X-Auth-Request-*` headers the client sent, then asks oauth2-proxy. With a valid sign-in cookie oauth2-proxy answers 202 and Traefik passes the request on, with `X-Auth-Request-Email` and `X-Auth-Request-User` set to the signed-in user. Without a cookie the browser goes to Google, back to `https://auth.<SSO_DOMAIN>/oauth2/callback`, and on to the page it asked for. One sign-in covers every app under `SSO_DOMAIN`.
+
+### Set up once
+
+1. **Google Cloud Console** > APIs & Services:
+   - *OAuth consent screen*: user type *External*, publishing status *Testing*, and add the Google accounts that may sign in as test users. Add `oplassen.net` (your `SSO_DOMAIN`) as an authorised domain.
+   - *Credentials > Create credentials > OAuth client ID*, type *Web application*, authorised redirect URI `https://auth.oplassen.net/oauth2/callback`. Copy the client ID and secret.
+2. **The allow-list** on the host, one email address per line (oauth2-proxy lets in only these):
+   `sudo mkdir -p /opt/oauth2-proxy && echo "you@gmail.com" | sudo tee /opt/oauth2-proxy/emails.txt`
+3. **Deploy the oauth2-proxy stack** in Portainer: repository `gjerdingc/traefik-lab-lb`, compose path `oauth2-proxy/docker-compose.yml`, with these variables:
+
+| Variable | Value |
+|---|---|
+| `OAUTH_CLIENT_ID` | From step 1 |
+| `OAUTH_CLIENT_SECRET` | From step 1. Never commit this |
+| `OAUTH_COOKIE_SECRET` | `openssl rand -base64 32 \| tr -- '+/' '-_'` |
+| `SSO_DOMAIN` | `oplassen.net` |
+
+4. **In this stack**, add the variables below and **Pull and redeploy**. The Status page shows *Google sign-in: available*.
+
+| Variable | Value | Notes |
+|---|---|---|
+| `ALLOWED_DOMAINS` | `gjecorp.net,oplassen.net` | The sign-in domain must be allowed |
+| `SSO_ENABLED` | `true` | Shows *Require Google sign-in* on the app form |
+| `SSO_DOMAIN` | `oplassen.net` | Same as in the oauth2-proxy stack. Apps with sign-in must have all their names under it |
+| `SSO_AUTH_URL` | `http://oauth2-proxy:4180` | Default. oauth2-proxy as Traefik sees it on the proxy network |
+
+5. **Add the sign-in route** as an ordinary app: slug `auth`, FQDN `auth.oplassen.net`, backend `http://oauth2-proxy:4180`, *without* sign-in (the manager refuses it there). Create the DNS record `auth.oplassen.net` in Pi-hole.
+6. **Pick apps**: edit an app under `oplassen.net`, tick **Require Google sign-in** and save. The app list marks it *sign-in*.
+
+### Good to know
+
+- Who may sign in is decided by `/opt/oauth2-proxy/emails.txt`. Restart the oauth2-proxy container after changing it.
+- An app gets the user from `X-Auth-Request-Email`. Only trust it when the app is reached through Traefik: an app with a published host port can be called around the gateway with any header.
+- Sign-in needs internet access to Google. Sign out at `https://auth.oplassen.net/oauth2/sign_out`.
+- The cookie is valid for every app under `SSO_DOMAIN`, so each of them receives it.
+- Turning `SSO_ENABLED` off while apps still require sign-in does not open them: their routers point at a middleware that no longer exists, so Traefik rejects them (404) until sign-in is removed from the app or turned back on. Scripts and monitors that call an app need a route without sign-in.
+- The manager's own GUI is not behind sign-in; it keeps the LAN allow-list and optional basic auth.
+
 ## Renewal
 
 Every `RENEW_CHECK_HOURS` the manager renews certs with fewer than `RENEW_BEFORE_DAYS` days left. A cert already limited by the intermediate's own expiry is not renewed repeatedly. Results are on **Status**; failures show as a red banner on every page.
@@ -213,7 +257,7 @@ Traefik's access log now goes to that file instead of the container output, so i
 - Issued private keys are unencrypted on disk, as Traefik requires. The GUI never offers them for download.
 - The Traefik API is unauthenticated, but its port is not published to the host.
 
-Hardening ideas, in order of value: a name-constrained issuing sub-CA for the manager (the manager already honours name constraints), SSO or basic auth, step-ca for signing, shorter cert lifetimes. See SPEC.md section 10.
+Hardening ideas, in order of value: a name-constrained issuing sub-CA for the manager (the manager already honours name constraints), Google sign-in for the manager itself, step-ca for signing, shorter cert lifetimes. See SPEC.md section 10.
 
 ## Development
 

@@ -89,6 +89,10 @@ services:
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
       # Offer Let's Encrypt on the app form. Set CF_DNS_API_TOKEN first.
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
+      # Offer "Require Google sign-in" on the app form. Deploy oauth2-proxy/docker-compose.yml first.
+      SSO_ENABLED: ${SSO_ENABLED:-false}
+      SSO_DOMAIN: ${SSO_DOMAIN:-}
+      SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
     volumes:
       - /opt/traefik/dynamic:/etc/traefik/dynamic
       - /opt/traefik/certs:/etc/traefik/certs

@@ -37,7 +37,8 @@ def free_port():
 def backend(body):
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            payload = f"{body} host={self.headers.get('Host')}".encode()
+            payload = (f"{body} host={self.headers.get('Host')} "
+                       f"user={self.headers.get('X-Auth-Request-Email')}").encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -52,12 +53,12 @@ def backend(body):
 
 
 class Stack:
-    def __init__(self, tmp_path, pki_session):
+    def __init__(self, tmp_path, pki_session, **env_overrides):
         self.https, self.api_port = free_port(), free_port()
         self.app_backend, self.mgr_backend = backend("app-backend"), backend("manager-backend")
         env = make_env(
             tmp_path, pki_session, LAN_CIDRS="127.0.0.0/8", MANAGER_BACKEND=f"http://127.0.0.1:{self.mgr_backend.server_port}",
-            TRAEFIK_API_URL=f"http://127.0.0.1:{self.api_port}", TRAEFIK_HTTPS_PORT=str(self.https))
+            TRAEFIK_API_URL=f"http://127.0.0.1:{self.api_port}", TRAEFIK_HTTPS_PORT=str(self.https), **env_overrides)
         self.env, self.root = env, pki_session["root"]
         os.makedirs(env["TM_DYNAMIC_DIR"], exist_ok=True)
         self.proc = subprocess.Popen(
@@ -86,7 +87,7 @@ class Stack:
         return Manager(config, ca, err, st.Store(config.data_dir), st.ActionLog(config.data_dir),
                        TraefikAPI(config.traefik_api_url))
 
-    def get(self, host, path="/", verify_host=True):
+    def get(self, host, path="/", verify_host=True, headers=None):
         """(status, body, serial of the cert served), verified against the root CA with SNI=host.
 
         verify_host=False still checks the chain but not the name, for hosts Traefik no longer
@@ -96,7 +97,8 @@ class Stack:
         with socket.create_connection(("127.0.0.1", self.https), timeout=5) as raw:
             with ctx.wrap_socket(raw, server_hostname=host) as tls:
                 serial = format(x509.load_der_x509_certificate(tls.getpeercert(binary_form=True)).serial_number, "x")
-                tls.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+                extra = "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items())
+                tls.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n".encode())
                 data = b""
                 while chunk := tls.recv(4096):
                     data += chunk
@@ -361,3 +363,58 @@ def test_named_ip_list_changes_reach_traefik(stack):
     assert stack.get("listed.gjecorp.net")[0] == 403
     assert m.update_ip_list("admins", {"sources": "192.0.2.0/24\n127.0.0.1"}) == (["listed"], [])
     assert stack.get("listed.gjecorp.net")[0] == 200
+
+
+def fake_oauth2_proxy():
+    """Stands in for oauth2-proxy at /: 202 with the user for the right cookie, else a redirect."""
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if "_oauth2_proxy=good" in (self.headers.get("Cookie") or ""):
+                self.send_response(202)
+                self.send_header("X-Auth-Request-Email", "me@example.com")
+                self.send_header("X-Auth-Request-User", "1234")
+            else:
+                back = f"https://{self.headers.get('X-Forwarded-Host')}{self.headers.get('X-Forwarded-Uri')}"
+                self.send_response(302)
+                self.send_header("Location", f"https://accounts.google.com/o/oauth2/auth?state={back}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_sign_in_against_real_traefik(tmp_path, pki_session):
+    auth = fake_oauth2_proxy()
+    stack = Stack(tmp_path, pki_session, SSO_ENABLED="true", SSO_DOMAIN="gjecorp.net",
+                  SSO_AUTH_URL=f"http://127.0.0.1:{auth.server_port}")
+    try:
+        m = stack.manager
+        m.startup()
+        assert m.startup_error is None
+        backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
+        result = m.create_app({**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external",
+                               "backend_url": backend_url, "require_sign_in": "on"})
+        assert result.verified, result.detail
+
+        # Not signed in: sent to Google, with the page asked for kept for the way back.
+        status, _, _ = stack.get("demo.gjecorp.net", "/x?y=1")
+        assert status == 302
+        # Signed in: the app sees the user oauth2-proxy vouched for, not what the client claimed.
+        status, body, _ = stack.get("demo.gjecorp.net", headers={"Cookie": "_oauth2_proxy=good",
+                                                                 "X-Auth-Request-Email": "evil@example.com"})
+        assert status == 200 and "user=me@example.com" in body
+        # A forged header alone gets nowhere.
+        assert stack.get("demo.gjecorp.net", headers={"X-Auth-Request-Email": "evil@example.com"})[0] == 302
+
+        # Sign-in removed: the app is open again.
+        m.update_app("demo", {**FORM, "slug": "demo", "fqdn": "demo.gjecorp.net", "kind": "external",
+                              "backend_url": backend_url})
+        assert stack.get("demo.gjecorp.net")[0] == 200
+    finally:
+        stack.close()
+        auth.shutdown()

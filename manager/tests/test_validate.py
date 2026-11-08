@@ -196,3 +196,35 @@ def test_letsencrypt_needs_it_to_be_set_up():
     assert not errors and fields["cert_source"] == "letsencrypt"
     _, errors = v({"cert_source": "acme"})
     assert "cert_source" in errors
+
+
+SSO = {"allowed_domains": ["gjecorp.net", "oplassen.net"], "sso_domain": "oplassen.net",
+       "sso_auth_url": "http://oauth2-proxy:4180"}
+SIGN_IN = {**GOOD, "fqdn": "app.oplassen.net", "require_sign_in": "on"}
+
+
+def test_sign_in_needs_it_to_be_set_up():
+    _, errors = validate_app(SIGN_IN, [], SSO["allowed_domains"])
+    assert "not set up" in errors["require_sign_in"]
+    fields, errors = validate_app(SIGN_IN, [], **SSO)
+    assert not errors and fields["require_sign_in"] is True
+    fields, errors = validate_app({**GOOD}, [], **SSO)
+    assert not errors and fields["require_sign_in"] is False
+
+
+def test_sign_in_names_must_be_under_the_cookie_domain():
+    _, errors = validate_app({**SIGN_IN, "fqdn": "app.gjecorp.net"}, [], **SSO)
+    assert "app.gjecorp.net" in errors["require_sign_in"]
+    _, errors = validate_app({**SIGN_IN, "extra_sans": "app.gjecorp.net"}, [], **SSO)
+    assert "app.gjecorp.net" in errors["require_sign_in"]
+    _, errors = validate_app({**SIGN_IN, "fqdn": "oplassen.net"}, [], **SSO)
+    assert not errors
+
+
+@pytest.mark.parametrize("backend,auth_url", [("http://oauth2-proxy:4180", "http://oauth2-proxy:4180"),
+                                              ("http://oauth2-proxy:80", "http://oauth2-proxy")])
+def test_oauth2_proxy_route_cannot_require_sign_in(backend, auth_url):
+    _, errors = validate_app({**SIGN_IN, "backend_url": backend}, [], **{**SSO, "sso_auth_url": auth_url})
+    assert "oauth2-proxy route itself" in errors["require_sign_in"]
+    _, errors = validate_app({**SIGN_IN, "backend_url": "http://oauth2-proxy:8080"}, [], **SSO)
+    assert not errors

@@ -147,3 +147,37 @@ def test_app_without_cert_source_uses_the_internal_cert():
     data = yaml.safe_load(tc.render_app(APP))
     assert data["http"]["routers"]["grafana"]["tls"] == {}
     assert data["tls"]["certificates"][0]["certFile"] == APP["cert"]["cert_path"]
+
+
+SSO_ENV = {"ALLOWED_DOMAINS": "gjecorp.net,oplassen.net", "SSO_ENABLED": "true", "SSO_DOMAIN": "oplassen.net"}
+
+
+def test_sign_in_app_gets_the_sso_chain_after_the_ip_checks():
+    app = {**APP, "require_sign_in": True, "allowed_sources": ["10.0.0.20"], "start_path": "/admin/"}
+    router = yaml.safe_load(tc.render_app(app))["http"]["routers"]["grafana"]
+    assert router["middlewares"] == ["lan-only@file", "grafana-sources@file", "sso@file",
+                                     "grafana-start@file", "secure-headers@file"]
+    assert "sso@file" not in tc.render_app(APP)
+
+
+def test_core_defines_sso_only_when_enabled():
+    assert "sso" not in yaml.safe_load(tc.render_core(core_config(), None))["http"]["middlewares"]
+    config = core_config(**SSO_ENV)
+    assert config.ok, config.errors
+    mw = yaml.safe_load(tc.render_core(config, None))["http"]["middlewares"]
+    assert mw["sso"] == {"chain": {"middlewares": ["sso-strip@file", "sso-auth@file"]}}
+    assert mw["sso-auth"]["forwardAuth"] == {"address": "http://oauth2-proxy:4180/",
+                                             "authResponseHeaders": ["X-Auth-Request-User", "X-Auth-Request-Email"]}
+    # Headers a client could send to impersonate someone are removed before oauth2-proxy sets them.
+    stripped = mw["sso-strip"]["headers"]["customRequestHeaders"]
+    assert stripped["X-Auth-Request-Email"] == "" and stripped["X-Auth-Request-User"] == ""
+
+
+def test_sso_config_is_validated():
+    assert any("SSO_DOMAIN is required" in e for e in core_config(SSO_ENABLED="true").errors)
+    assert any("outside ALLOWED_DOMAINS" in e
+               for e in core_config(SSO_ENABLED="true", SSO_DOMAIN="oplassen.net").errors)
+    bad = core_config(**SSO_ENV, SSO_AUTH_URL="oauth2-proxy:4180")
+    assert any("SSO_AUTH_URL" in e for e in bad.errors)
+    # Off by default, and SSO_DOMAIN alone does not turn it on.
+    assert core_config(SSO_DOMAIN="oplassen.net").ok and not core_config().sso_enabled

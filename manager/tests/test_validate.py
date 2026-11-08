@@ -182,3 +182,17 @@ def test_ip_list_validation():
 def test_every_unknown_ip_list_is_reported():
     fields, errors = validate_app({**GOOD, "ip_lists": ["a", "admins", "b"]}, [], DOMAINS, None, ["admins"])
     assert "'a'" in errors["ip_lists"] and "'b'" in errors["ip_lists"] and fields["ip_lists"] == ["admins"]
+
+
+def test_cert_source_defaults_to_internal():
+    fields, errors = v({})
+    assert not errors and fields["cert_source"] == "internal"
+
+
+def test_letsencrypt_needs_it_to_be_set_up():
+    _, errors = v({"cert_source": "letsencrypt"})
+    assert "LETSENCRYPT_ENABLED" in errors["cert_source"]
+    fields, errors = validate_app({**GOOD, "cert_source": "letsencrypt"}, [], DOMAINS, letsencrypt_enabled=True)
+    assert not errors and fields["cert_source"] == "letsencrypt"
+    _, errors = v({"cert_source": "acme"})
+    assert "cert_source" in errors

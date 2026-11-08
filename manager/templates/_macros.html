@@ -18,6 +18,10 @@
 {% if cert %}<span class="badge badge-{{ cert.not_after | expiry_class }} mono">{{ cert.not_after[:10] }} · {{ cert.not_after | days_left }}d</span>{% else %}<span class="badge badge-err">no cert</span>{% endif %}
 {% endmacro %}
 
+{% macro cert_badge(a) %}
+{% if a.cert_source == 'letsencrypt' %}<span class="badge badge-ok" title="Obtained and renewed by Traefik">Let's Encrypt</span>{% else %}{{ expiry(a.cert) }}{% endif %}
+{% endmacro %}
+
 {% macro picker(name, label, options, selected, errors, placeholder, hint="") %}
 {# A dropdown that adds each pick as a removable chip (static/picker.js). options: dicts with value and detail.
    Without JavaScript the dropdown itself posts one more pick per save. The empty hidden value is always

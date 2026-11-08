@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 import requests
 from cryptography import x509
 
+import pki
+import traefik_config as tc
 from traefik_api import describe
 
 
@@ -64,10 +66,58 @@ def traefik_check(api, slug):
     return _r("ok", detail)
 
 
-def e2e_check(config, app, timeout=5):
-    """HTTPS GET to Traefik with SNI/Host = the app's FQDN, verified against the root CA."""
+def _trust(config, app):
+    """TLS context for a check: the public roots for Let's Encrypt apps, else the internal root."""
+    if tc.uses_letsencrypt(app):
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=config.root_ca_path)
+
+
+def _fetch_cert(config, fqdn, ctx, timeout):
+    with socket.create_connection((config.traefik_host, config.traefik_https_port), timeout=timeout) as raw:
+        with ctx.wrap_socket(raw, server_hostname=fqdn) as tls:
+            return x509.load_der_x509_certificate(tls.getpeercert(binary_form=True))
+
+
+def served_cert_check(config, app, timeout=3):
+    """For a Let's Encrypt app: the cert Traefik serves for the FQDN, and whether it is trusted.
+
+    Until Traefik has obtained the cert it serves its default one (the manager's internal
+    cert), so an untrusted answer shortly after saving usually means "not issued yet"."""
     fqdn = app["fqdn"]
-    ctx = ssl.create_default_context(cafile=config.root_ca_path)
+    try:
+        cert = _fetch_cert(config, fqdn, ssl.create_default_context(), timeout)
+        error = None
+    except ssl.SSLCertVerificationError as exc:
+        error = exc.verify_message or str(exc)
+        insecure = ssl.create_default_context()
+        insecure.check_hostname, insecure.verify_mode = False, ssl.CERT_NONE
+        try:
+            cert = _fetch_cert(config, fqdn, insecure, timeout)
+        except (OSError, ssl.SSLError) as exc2:
+            return {**_r("fail", f"Could not connect to https://{config.traefik_host}: {exc2}"), "info": None}
+    except (OSError, ssl.SSLError) as exc:
+        return {**_r("fail", f"Could not connect to https://{config.traefik_host}: {exc}"), "info": None}
+
+    info = pki.cert_info(cert)
+    left = (pki.parse_iso(info["not_after"]) - pki.utcnow()).days
+    if error:
+        return {**_r("warn", f"Traefik serves a certificate from {info['issuer']} that is not publicly trusted "
+                             f"({error}). A new Let's Encrypt cert usually arrives within a few minutes of "
+                             "saving; if it does not, look for acme errors in Traefik's log (Cloudflare "
+                             "token, DNS)."), "info": info}
+    status = "ok" if left > 14 else "warn"
+    detail = f"Let's Encrypt cert from {info['issuer']}, {left} days left"
+    if status == "warn":
+        detail += ". Traefik should have renewed it by now; check Traefik's log for acme errors"
+    return {**_r(status, detail), "info": info}
+
+
+def e2e_check(config, app, timeout=5):
+    """HTTPS GET to Traefik with SNI/Host = the app's FQDN, verified against the root CA
+    (or the public roots, for a Let's Encrypt app)."""
+    fqdn = app["fqdn"]
+    ctx = _trust(config, app)
     try:
         with socket.create_connection((config.traefik_host, config.traefik_https_port), timeout=timeout) as raw:
             with ctx.wrap_socket(raw, server_hostname=fqdn) as tls:
@@ -103,6 +153,8 @@ def run_checks(config, api, app, timeout=4):
         "backend": lambda: backend_check(app["backend_url"]),
         "traefik": lambda: traefik_check(api, "traefik-manager" if app.get("reserved") else app["slug"]),
     }
+    if tc.uses_letsencrypt(app) and app.get("enabled", True):
+        jobs["certificate"] = lambda: served_cert_check(config, app)
     out = {}
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs))
     futures = {name: pool.submit(fn) for name, fn in jobs.items()}

@@ -25,6 +25,16 @@
 </section>
 
 <section class="card">
+  <h2>Let's Encrypt</h2>
+  <dl class="kv">
+    <dt>Status</dt><dd>{% if config.letsencrypt_enabled %}{{ status_badge('ok') }}Available on the app form{% else %}<span class="badge badge-muted">off</span>Set <span class="mono">LETSENCRYPT_ENABLED=true</span> to offer it{% endif %}</dd>
+    <dt>Resolver</dt><dd class="mono">{{ config.letsencrypt_resolver }}</dd>
+    <dt>Apps</dt><dd>{% for a in le_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}</dd>
+  </dl>
+  <p class="help">Traefik obtains and renews these certificates itself (DNS challenge in Cloudflare), so they are not part of the renewal below. Problems show up in Traefik's log, not here; the Certificate check on each app shows what Traefik actually serves.</p>
+</section>
+
+<section class="card">
   <h2>Traefik</h2>
   <dl class="kv">
     <dt>API</dt><dd>{% if version %}{{ status_badge('ok') }}<span class="mono">{{ version }}</span>{% else %}{{ status_badge('fail') }}{{ api_error }}{% endif %}</dd>

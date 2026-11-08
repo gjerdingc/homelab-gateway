@@ -132,7 +132,19 @@ class Manager:
     def render_for(self, app, lists=None):
         if app.get("reserved"):
             return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)))
-        return tc.render_app(app, self.ip_list_map(lists))
+        return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver)
+
+    def routable(self, app):
+        """True when the app's file can be written: it has an internal cert, or Traefik gets one."""
+        return bool(app.get("cert")) or tc.uses_letsencrypt(app)
+
+    def _needs_internal_cert(self, app, prev):
+        """Whether an internal-CA app needs a new cert: new names, missing files, expired, or it
+        was a Let's Encrypt app until now."""
+        if tc.uses_letsencrypt(app):
+            return False
+        return (prev is None or tc.uses_letsencrypt(prev) or _names(app) != _names(prev)
+                or not self.cert_files_exist(prev) or self.cert_expired(prev))
 
     def cert_expired(self, app):
         cert = app.get("cert")
@@ -143,6 +155,8 @@ class Manager:
         return bool(cert) and os.path.isfile(cert["cert_path"]) and os.path.isfile(cert["key_path"])
 
     def due_for_renewal(self, app):
+        if tc.uses_letsencrypt(app):
+            return False  # Traefik renews these itself
         if not self.cert_files_exist(app):
             return True
         not_after = pki.parse_iso(app["cert"]["not_after"])
@@ -214,7 +228,10 @@ class Manager:
         saved_data = copy.deepcopy(data)
         written = []
         try:
-            if reissue:
+            if tc.uses_letsencrypt(app):
+                # Traefik obtains and stores this cert (acme.json); the manager keeps none.
+                app.pop("cert", None)
+            elif reissue:
                 app["cert"] = self._issue(app, written)
             elif prev:
                 app["cert"] = prev.get("cert")
@@ -302,7 +319,7 @@ class Manager:
 
     def validate(self, form, editing_slug=None):
         return validate_app(form, self.apps(), self.config.allowed_domains, editing_slug,
-                            [l["name"] for l in self.ip_lists()])
+                            [l["name"] for l in self.ip_lists()], self.config.letsencrypt_enabled)
 
     def create_app(self, form):
         self._require_ready()
@@ -312,7 +329,7 @@ class Manager:
                 raise ApplyError("Please fix the highlighted fields.", errors)
             now = st.now_iso()
             app = {**fields, "enabled": True, "notes": fields["notes"], "created_at": now, "updated_at": now}
-            return self._apply(app, None, True, "created")
+            return self._apply(app, None, self._needs_internal_cert(app, None), "created")
 
     def update_app(self, slug, form):
         self._require_ready()
@@ -324,9 +341,7 @@ class Manager:
             if errors:
                 raise ApplyError("Please fix the highlighted fields.", errors)
             app = {**copy.deepcopy(prev), **fields}
-            names_changed = _names(app) != _names(prev)
-            reissue = names_changed or not self.cert_files_exist(prev) or self.cert_expired(prev)
-            return self._apply(app, prev, reissue, "updated")
+            return self._apply(app, prev, self._needs_internal_cert(app, prev), "updated")
 
     def renew_app(self, slug):
         self._require_ready()
@@ -334,6 +349,9 @@ class Manager:
             prev = self.get(slug)
             if not prev:
                 raise ApplyError(f"App {slug!r} not found")
+            if tc.uses_letsencrypt(prev):
+                raise ApplyError(f"{prev['fqdn']} uses Let's Encrypt. Traefik renews it by itself, "
+                                 "about 30 days before it expires.")
             app = copy.deepcopy(prev)
             if app.get("reserved"):
                 app["fqdn"], app["extra_sans"] = self.config.manager_fqdn, []
@@ -346,7 +364,8 @@ class Manager:
             if not prev or prev.get("reserved"):
                 raise ApplyError(f"App {slug!r} cannot be enabled/disabled")
             app = {**copy.deepcopy(prev), "enabled": enabled}
-            reissue = enabled and (not self.cert_files_exist(prev) or self.cert_expired(prev))
+            reissue = enabled and not tc.uses_letsencrypt(prev) and (
+                not self.cert_files_exist(prev) or self.cert_expired(prev))
             return self._apply(app, prev, reissue, "enabled" if enabled else "disabled")
 
     def delete_app(self, slug, confirm):
@@ -392,7 +411,7 @@ class Manager:
             raise ApplyError(self.problem())
         changes = []
         for a in data["apps"]:
-            if not a.get("reserved") and (not a.get("enabled", True) or not a.get("cert")):
+            if not a.get("reserved") and (not a.get("enabled", True) or not self.routable(a)):
                 continue
             path, text = self._target_path(a), self.render_for(a, data["ip_lists"])
             if st.read_text(path) != text:
@@ -549,7 +568,7 @@ class Manager:
             mgr = next((a for a in apps if a.get("reserved")), None)
             desired = {"_core.yml": self.render_for(mgr) if mgr else tc.render_core(self.config, None)}
             for a in apps:
-                if not a.get("reserved") and a.get("enabled", True) and a.get("cert"):
+                if not a.get("reserved") and a.get("enabled", True) and self.routable(a):
                     desired[tc.app_filename(a["slug"])] = self.render_for(a)
             os.makedirs(self.config.dynamic_dir, exist_ok=True)
             for name, text in desired.items():
@@ -604,6 +623,11 @@ class Manager:
             out.append({"name": os.path.basename(path), "content": st.read_text(path) or ""})
         return out
 
+    def letsencrypt_apps(self):
+        return [a for a in self.user_apps() if tc.uses_letsencrypt(a)]
+
     def cert_details(self, app):
-        cert = pki.load_cert_file(app["cert"]["cert_path"]) if app.get("cert") else None
+        """The internal cert on disk. Let's Encrypt certs live in Traefik's acme.json, which the
+        manager can't read, so the detail page asks Traefik for the served cert instead."""
+        cert = pki.load_cert_file(app["cert"]["cert_path"]) if app.get("cert") and not tc.uses_letsencrypt(app) else None
         return pki.cert_info(cert) if cert else None

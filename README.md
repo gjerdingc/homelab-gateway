@@ -37,12 +37,13 @@ Killing the manager does not affect traffic: Traefik only reads the files the ma
 | `/opt/traefik/certs` | Issued certs and keys, one folder per app. Current and previous pair are kept. |
 | `/opt/traefik/manager` | `apps.yml` (source of truth), `archive/` (deleted apps), `manager.log`, `stats.json` (usage). Back this up. |
 | `/opt/traefik/logs` | Traefik's JSON access log, read by the manager for the Usage page. |
+| `/opt/traefik/acme` | `acme.json`: Traefik's Let's Encrypt account key and certificates. Traefik only; contains private keys. Back this up. |
 | `/home/christian/pki/intermediate` | Intermediate cert and encrypted key, mounted read-only into the manager only. |
 | `/home/christian/pki/root/root_ca.crt` | Root **certificate** only (single file mount). The root key is offline and never mounted. |
 
 ## Deploy (Portainer CE)
 
-1. Prepare the folders: `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs}`
+1. Prepare the folders: `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs,acme}`
 2. Make sure the DNS record `traefik.gjecorp.net -> 10.0.0.250` exists.
 3. In Portainer: **Stacks > Add stack > Repository**. Repository `https://github.com/gjerdingc/traefik-lab-lb`, compose path `docker-compose.yml`.
 4. Add these under **Environment variables**:
@@ -62,6 +63,7 @@ Optional: `PROXY_NETWORK` (`proxy`), `DASHBOARD_ENABLED` (`true`), `CERT_VALIDIT
 `RENEW_BEFORE_DAYS` (`30`), `RENEW_CHECK_HOURS` (`12`), `KEY_TYPE` (`rsa-2048` or `ec-p256`),
 `BASIC_AUTH_USERS` (htpasswd entries, e.g. from `htpasswd -nB me`), `TRAEFIK_API_URL`, `TRAEFIK_HTTPS_PORT`,
 `STATS_RETENTION_DAYS` (`90`), `ACCESS_LOG_MAX_MB` (`50`).
+For Let's Encrypt: `LETSENCRYPT_ENABLED`, `CF_DNS_API_TOKEN`, `ACME_EMAIL`, `ACME_CA_SERVER` (see [Let's Encrypt certificates](#lets-encrypt-certificates)).
 
 5. Deploy. Use **Pull and redeploy** to update later; the manager image is rebuilt each time.
 6. Open `https://traefik.gjecorp.net`. If it does not load, use `http://10.0.0.250:8090` and look at **Status** and **Log**.
@@ -72,7 +74,7 @@ Install the root certificate on your devices (download it from **Status**) so br
 
 1. Check the existing routes in `/opt/traefik` and that both apps are on the network: `docker network inspect proxy`.
 2. Back up: `sudo mv /opt/traefik /opt/traefik.old-$(date +%F)`
-3. `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs}`
+3. `sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs,acme}`
 4. Stop and remove the old Traefik container/stack in Portainer (this frees 80/443).
 5. Deploy the new stack (above).
 6. In the GUI, add the existing apps:
@@ -130,6 +132,47 @@ Any app or external service can be limited to certain clients. Other clients get
 - **The manager itself** (and the Traefik dashboard) can be limited the same way: open the `_manager` entry and choose **Edit access**, or add `_manager` to a list on the list's page. This comes on top of `LAN_CIDRS`, which always applies to the manager. If a save would block the address Traefik sees for you, the manager asks you to confirm first. If you do lock yourself out, use the break-glass port (`http://<pi-ip>:8090`, which does not go through Traefik) and clear the list.
 - The source check comes on top of **LAN only**: with both on, a client must be in `LAN_CIDRS` and match the app's sources. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
 - Traefik checks the address it sees as the source. If clients reach it through NAT or another proxy, every client may appear as the same address.
+
+## Let's Encrypt certificates
+
+Each app chooses where its certificate comes from, under **Certificate** on its form:
+
+- **Internal CA** (the default): issued by the manager with the intermediate CA. Clients need the root certificate installed.
+- **Let's Encrypt**: publicly trusted, so phones, guests' devices and tools with their own trust store accept it without installing anything. Traefik obtains and renews it itself; the manager only writes `tls.certResolver: letsencrypt` on the app's router.
+
+Traefik proves control of the name with a **DNS-01 challenge**: it creates a `_acme-challenge.<name>` TXT record through the Cloudflare API, Let's Encrypt looks it up, and Traefik removes it. Nothing has to be reachable from the internet and the app's own A record can stay on the LAN DNS only.
+
+### Set up once
+
+In Cloudflare:
+
+1. `gjecorp.net` must be a zone on Cloudflare that is **authoritative on the public internet** (the registrar points at Cloudflare's name servers). Internal-only records can stay in Pi-hole; Cloudflare only needs to hold the temporary TXT records.
+2. **My Profile > API Tokens > Create Token**, template *Edit zone DNS*. Permissions: **Zone / DNS / Edit** and **Zone / Zone / Read**. Zone resources: *Include / Specific zone / gjecorp.net*. Optionally restrict *Client IP Address Filtering* to your public IP. Copy the token.
+3. If the zone has **CAA** records, add one that allows Let's Encrypt: `gjecorp.net CAA 0 issue "letsencrypt.org"`. With no CAA records at all, nothing is needed.
+
+On the host and in Portainer:
+
+4. `sudo mkdir -p /opt/traefik/acme`
+5. Add these stack environment variables, then **Pull and redeploy**:
+
+| Variable | Value | Notes |
+|---|---|---|
+| `CF_DNS_API_TOKEN` | *(the token)* | Given to Traefik only. Never commit this |
+| `LETSENCRYPT_ENABLED` | `true` | Shows the Let's Encrypt option on the app form |
+| `ACME_EMAIL` | e.g. `you@example.com` | Optional; the Let's Encrypt account contact |
+| `ACME_CA_SERVER` | `https://acme-staging-v02.api.letsencrypt.org/directory` | Optional; use staging while testing (its certs are not trusted). Remove it for real certs |
+
+6. Edit an app, choose **Let's Encrypt** and save. Traefik loads the router at once and serves its default certificate (the manager's internal one) for a minute or two until the new certificate arrives. The app's **Certificate** check shows what Traefik actually serves, and turns green once it is a trusted Let's Encrypt certificate.
+
+### Good to know
+
+- Traefik renews Let's Encrypt certificates about 30 days before they expire. The manager's renewal (below) skips these apps, and **Renew now** is not offered for them. Problems show up in Traefik's log (search for `acme`), not in the manager log.
+- The names become public in Certificate Transparency logs (e.g. crt.sh). Use the internal CA for names you don't want listed.
+- Changing an app's names makes Traefik request a new certificate. Switching an app back to the internal CA issues an internal certificate again.
+- Let's Encrypt has rate limits (50 certificates per registered domain per week, 5 duplicates per week). Use `ACME_CA_SERVER` staging while experimenting. When you switch from staging to production, delete `/opt/traefik/acme/acme.json` and redeploy, so Traefik does not keep serving staging certificates.
+- The challenge record is checked on `1.1.1.1` and `1.0.0.1`, not on the LAN DNS, because Pi-hole may answer for `gjecorp.net` itself and never see the TXT record.
+- Wildcards are still not supported; each app gets a certificate for its FQDN and extra names.
+- The manager's own name (`MANAGER_FQDN`) keeps its internal certificate.
 
 ## Renewal
 

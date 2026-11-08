@@ -134,3 +134,16 @@ def test_a_missing_named_list_denies_everyone_instead_of_opening_the_app():
     # Also when other lists and extra addresses would still match.
     assert tc.effective_sources({**app, "ip_lists": ["vpn", "admins"], "allowed_sources": ["10.0.0.20"]},
                                 {"vpn": ["10.8.0.0/24"]}) == tc.DENY_ALL
+
+
+def test_letsencrypt_app_uses_the_cert_resolver_and_no_cert_files():
+    app = {**APP, "cert_source": "letsencrypt"}
+    data = yaml.safe_load(tc.render_app(app, resolver="le-cf"))
+    assert data["http"]["routers"]["grafana"]["tls"] == {"certResolver": "le-cf"}
+    assert "tls" not in data  # a leftover internal cert record is not served
+
+
+def test_app_without_cert_source_uses_the_internal_cert():
+    data = yaml.safe_load(tc.render_app(APP))
+    assert data["http"]["routers"]["grafana"]["tls"] == {}
+    assert data["tls"]["certificates"][0]["certFile"] == APP["cert"]["cert_path"]

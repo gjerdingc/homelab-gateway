@@ -5,6 +5,7 @@ import re
 from urllib.parse import urlparse
 
 from config import HOSTNAME_RE, in_domains
+from traefik_config import CERT_SOURCES
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 # internal: a container on the proxy network, reached by container name.
@@ -155,8 +156,11 @@ def validate_members(slugs, existing_apps):
     return [s for s in slugs if s in known], ("No app named " + ", ".join(repr(s) for s in unknown))
 
 
-def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=()):
+def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=(),
+                 letsencrypt_enabled=False):
     """Validate form data. existing_apps is the full list of app records.
+
+    letsencrypt_enabled: whether Traefik has the Let's Encrypt resolver (LETSENCRYPT_ENABLED).
 
     Returns (app_fields, errors) where errors maps a field name to a message."""
     errors = {}
@@ -219,6 +223,14 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
                        or any(seg in (".", "..") for seg in start_path.split("/"))):
         errors["start_path"] = "Start path must look like /admin/ (letters, digits, - _ . ~ and /)"
 
+    cert_source = (form.get("cert_source") or "internal").strip()
+    if cert_source not in CERT_SOURCES:
+        errors["cert_source"] = "Choose the internal CA or Let's Encrypt"
+        cert_source = "internal"
+    elif cert_source == "letsencrypt" and not letsencrypt_enabled:
+        errors["cert_source"] = ("Let's Encrypt is not set up. Set LETSENCRYPT_ENABLED=true and the "
+                                 "Cloudflare token in the stack (see the README), or choose the internal CA.")
+
     access, access_errors = validate_access(form, ip_list_names)
     errors.update(access_errors)
 
@@ -231,6 +243,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         "kind": kind,
         "fqdn": fqdn,
         "extra_sans": sans,
+        "cert_source": cert_source,
         "backend_url": backend or (form.get("backend_url") or "").strip(),
         "backend_tls_skip_verify": skip_verify,
         "start_path": start_path,

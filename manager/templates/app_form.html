@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import field, picker %}
 {% set ext = v.kind == 'external' %}
+{% set le = v.cert_source == 'letsencrypt' %}
 {% block title %}{{ 'Edit ' + editing if editing else ('Add external service' if ext else 'Add app') }} - Traefik Manager{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <h1>{% if editing %}Edit <span class="mono">{{ editing }}</span>{% elif ext %}Add external service{% else %}Add app{% endif %}</h1>
-    <p class="muted">{{ 'Changing the names issues a new certificate.' if editing else 'Issues a certificate and writes the Traefik route.' }}</p>
+    <p class="muted">{{ 'Changing the names issues a new certificate.' if editing else 'Gets a certificate and writes the Traefik route.' }}</p>
   </div>
 </div>
 <form method="post" action="{{ url_for('app_edit', slug=editing) if editing else url_for('app_new') }}">
@@ -32,6 +33,17 @@
     </div>
     {{ field('backend_url', 'Backend URL', v.backend_url, errors, 'scheme://host:port. Internal: the container name. External: an IP or host name Traefik can reach.', placeholder='http://grafana:3000', mono=true) }}
     {{ field('start_path', 'Start path (optional)', v.start_path or '', errors, 'Opening https://' ~ (v.fqdn or 'name') ~ '/ redirects here, for apps whose UI lives in a sub-path, e.g. /admin/ for Pi-hole. Other paths are passed through unchanged.', placeholder='/admin/', mono=true) }}
+  </section>
+  <section class="card">
+    <h2>Certificate</h2>
+    <fieldset class="field kind-choice{% if errors.get('cert_source') %} has-error{% endif %}">
+      <legend>Signed by</legend>
+      <label class="kind-option"><input type="radio" name="cert_source" value="internal" {% if not le %}checked{% endif %}>
+        <span><strong>Internal CA</strong><span class="help">Issued here by the intermediate CA. Clients need the root certificate installed (download it from Status).</span></span></label>
+      <label class="kind-option{% if not letsencrypt_enabled and not le %} is-disabled{% endif %}"><input type="radio" name="cert_source" value="letsencrypt" {% if le %}checked{% endif %}{% if not letsencrypt_enabled and not le %} disabled{% endif %}>
+        <span><strong>Let's Encrypt</strong><span class="help">{% if letsencrypt_enabled %}Publicly trusted, so any device accepts it. Traefik gets it through a Cloudflare DNS challenge and renews it itself; the app does not need to be reachable from the internet. The names become public in Certificate Transparency logs.{% else %}Not set up yet. Set <span class="mono">LETSENCRYPT_ENABLED</span> and the Cloudflare token in the stack, see the README.{% endif %}</span></span></label>
+      {% if errors.get('cert_source') %}<p class="error">{{ errors['cert_source'] }}</p>{% endif %}
+    </fieldset>
   </section>
   <section class="card">
     <h2>Options</h2>
@@ -69,7 +81,7 @@
 {% if preview %}
 <section class="card">
   <h2>Preview</h2>
-  <p class="help">The file that will be written. Certificate paths are filled in when it is issued.</p>
+  <p class="help">The file that will be written. {{ "Traefik requests the Let's Encrypt certificate once it loads the file." if le else 'Certificate paths are filled in when it is issued.' }}</p>
   <pre class="code">{{ preview }}</pre>
 </section>
 {% endif %}

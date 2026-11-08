@@ -113,12 +113,15 @@ def create_app(env=None, start_background=True):
         for w in config.warnings:
             banners.append(("warn", w))
         return {"csrf_token": csrf_token, "banners": banners, "manager_fqdn": config.manager_fqdn,
-                "dashboard_enabled": config.dashboard_enabled}
+                "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled}
 
     # ---- helpers -------------------------------------------------------------
 
     def flash_result(result, verb):
-        if result.verified:
+        if result.verified and tc.uses_letsencrypt(result.app) and result.app.get("enabled", True):
+            flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router and requests the Let's Encrypt "
+                  "certificate in the background; this usually takes a minute or two.", "success")
+        elif result.verified:
             flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router.", "success")
         else:
             flash(f"{result.app['fqdn']} {verb}, but Traefik has not confirmed it: {result.detail}", "warn")
@@ -130,14 +133,14 @@ def create_app(env=None, start_background=True):
         return a
 
     def form_defaults(kind="internal"):
-        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [],
+        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "internal",
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
                 "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
         return {"slug": f.get("slug", ""), "kind": f.get("kind", "internal"), "fqdn": f.get("fqdn", ""),
-                "extra_sans": f.get("extra_sans", ""),
+                "extra_sans": f.get("extra_sans", ""), "cert_source": f.get("cert_source", "internal"),
                 "backend_url": f.get("backend_url", ""), "notes": f.get("notes", ""),
                 "start_path": f.get("start_path", ""), "allowed_sources": f.get("allowed_sources", ""),
                 "ip_lists": [n for n in f.getlist("ip_lists") if n],
@@ -190,8 +193,10 @@ def create_app(env=None, start_background=True):
         fields, errors = manager.validate(request.form, editing_slug=editing)
         preview = None
         if not errors:
-            sample = {**fields, "cert": {"cert_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.crt",
-                                         "key_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.key"}}
+            sample = dict(fields)
+            if not tc.uses_letsencrypt(fields):
+                sample["cert"] = {"cert_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.crt",
+                                  "key_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.key"}
             preview = manager.render_for(sample)
         else:
             flash("Please fix the highlighted fields.", "error")
@@ -381,6 +386,7 @@ def create_app(env=None, start_background=True):
             version, api_error = None, describe(exc)
         return render_template("status.html", ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
                                version=version, api_error=api_error, renewer=renewer, config=config,
+                               le_apps=manager.letsencrypt_apps(),
                                manual=manager.manual_files(), now=pki.iso(pki.utcnow()))
 
     @app.post("/status/regenerate")

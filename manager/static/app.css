@@ -77,6 +77,7 @@ details summary { cursor: pointer; padding: .25rem 0; }
 .kind-option strong { display: block; font-weight: 600; }
 .kind-option .help { display: block; margin-top: .1rem; }
 .kind-choice .kind-option:has(input:checked) { border-color: var(--primary); }
+.kind-choice .kind-option.is-disabled { cursor: not-allowed; opacity: .7; }
 
 /* Add/edit form: allowed sources (named IP lists plus extra addresses) */
 .source-lists { border: 0; padding: 0; margin: 0 0 1rem; }

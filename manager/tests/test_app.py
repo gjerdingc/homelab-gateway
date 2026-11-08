@@ -203,3 +203,23 @@ def test_manager_access_page(client):
     assert r.status_code == 302 and m.get("_manager")["ip_lists"] == ["admins"]
     assert "_manager" in client.get("/ip-lists").get_data(as_text=True)
     assert "(this manager)" in client.get("/ip-lists/admins/edit").get_data(as_text=True)
+
+
+def test_letsencrypt_option_on_form_and_detail(client, monkeypatch):
+    import checks
+    mgr = client.tm["manager"]
+    mgr.startup()
+    page = client.get("/apps/new").get_data(as_text=True)
+    assert 'value="letsencrypt"' in page and "Not set up yet" in page
+
+    mgr.config.letsencrypt_enabled = True
+    info = {"serial": "abc", "issuer": "R11", "subject": "grafana.gjecorp.net", "sans": ["grafana.gjecorp.net"],
+            "not_before": "2026-11-01T00:00:00Z", "not_after": "2027-01-30T00:00:00Z", "sha256": "AA"}
+    monkeypatch.setattr(checks, "served_cert_check",
+                        lambda config, app: {"status": "ok", "detail": "Let's Encrypt cert from R11", "info": info})
+    r = client.post("/apps/new", data={**FORM, "cert_source": "letsencrypt", "csrf_token": token(client)})
+    assert r.status_code == 302
+    page = client.get("/apps/grafana").get_data(as_text=True)
+    assert "certResolver: letsencrypt" in page and "R11" in page and "Download fullchain.pem" not in page
+    assert ">Let's Encrypt</span>" in client.get("/").get_data(as_text=True)
+    assert client.get("/status").status_code == 200

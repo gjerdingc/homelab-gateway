@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry %}
+{% from "_macros.html" import cert_badge %}
 {% macro app_rows(list, empty, label="App") %}
   {% for a in list %}
     {% set r = routers.get('traefik-manager' if a.reserved else a.slug) %}
@@ -7,7 +7,7 @@
       <td data-label="{{ label }}"><a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if a.reserved %} <span class="badge badge-muted">system</span>{% endif %}{% if a.kind == 'external' %}<svg class="ext-icon" width="13" height="13" viewBox="0 0 24 24" aria-label="external service" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></g></svg>{% endif %}</td>
       <td data-label="FQDN"><a class="mono" href="https://{{ a.fqdn }}/">{{ a.fqdn }}</a></td>
       <td data-label="Backend" class="mono">{{ a.backend_url }}</td>
-      <td data-label="Certificate" class="nowrap">{{ expiry(a.cert) }}</td>
+      <td data-label="Certificate" class="nowrap">{{ cert_badge(a) }}</td>
       <td data-label="Traefik">
         {% if not a.enabled %}<span class="badge badge-muted">disabled</span>
         {% elif api_error %}<span class="badge badge-muted">unknown</span>

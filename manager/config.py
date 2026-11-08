@@ -20,6 +20,11 @@ def _split(value):
     return [p.strip() for p in re.split(r"[,\s]+", value or "") if p.strip()]
 
 
+def _bool(value, default):
+    value = (value or "").strip().lower()
+    return default if not value else value not in ("0", "false", "no", "off")
+
+
 class Config:
     def __init__(self, env=None):
         env = os.environ if env is None else env
@@ -34,7 +39,11 @@ class Config:
         self.root_ca_path = env.get("TM_ROOT_CA_PATH", "/pki/root_ca.crt")
 
         self.manager_fqdn = env.get("MANAGER_FQDN", "").strip().lower().rstrip(".")
-        self.dashboard_enabled = env.get("DASHBOARD_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+        self.dashboard_enabled = _bool(env.get("DASHBOARD_ENABLED"), True)
+        # Let's Encrypt is done by Traefik's own ACME client (the "letsencrypt" cert resolver in
+        # docker-compose.yml). The manager only needs to know it is set up, so the form can offer it.
+        self.letsencrypt_enabled = _bool(env.get("LETSENCRYPT_ENABLED"), False)
+        self.letsencrypt_resolver = env.get("LETSENCRYPT_RESOLVER", "letsencrypt").strip() or "letsencrypt"
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
         self.lan_cidrs = _split(env.get("LAN_CIDRS"))
         self.ca_cert_file = env.get("CA_CERT_FILE", "").strip()
@@ -109,6 +118,8 @@ class Config:
             if ":" not in entry or entry.startswith(":"):
                 e.append("BASIC_AUTH_USERS entries must look like user:hash (htpasswd format)")
                 break
+        if not re.match(r"^[A-Za-z0-9_-]{1,64}$", self.letsencrypt_resolver):
+            e.append(f"LETSENCRYPT_RESOLVER {self.letsencrypt_resolver!r} must be letters, digits, - or _")
         if not self.ca_key_password:
             self.warnings.append("CA_KEY_PASSWORD is not set; this only works if the CA key is not encrypted")
         if not os.path.isfile(self.root_ca_path):

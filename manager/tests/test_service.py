@@ -452,3 +452,61 @@ def test_lockout_guard(manager):
     # No address (the break-glass port) is not checked.
     manager.update_manager_access(form, None)
     assert manager.get("_manager")["ip_lists"] == ["admins"]
+
+
+@pytest.fixture
+def le_manager(manager):
+    manager.config.letsencrypt_enabled = True
+    return manager
+
+
+LE_FORM = {**FORM, "cert_source": "letsencrypt"}
+
+
+def test_letsencrypt_app_issues_no_internal_cert(le_manager):
+    m = le_manager
+    assert m.create_app(LE_FORM).verified
+    app = m.get("grafana")
+    assert app["cert_source"] == "letsencrypt" and "cert" not in app
+    assert not os.path.exists(os.path.join(m.config.certs_dir, "grafana"))
+    data = yaml.safe_load(open(dyn(m, "app-grafana.yml")).read())
+    assert data["http"]["routers"]["grafana"]["tls"] == {"certResolver": "letsencrypt"}
+    assert not m.due_for_renewal(app)
+    with pytest.raises(ApplyError, match="renews it by itself"):
+        m.renew_app("grafana")
+
+
+def test_letsencrypt_refused_when_not_set_up(manager):
+    with pytest.raises(ApplyError) as exc:
+        manager.create_app(LE_FORM)
+    assert "cert_source" in exc.value.field_errors and manager.apps() == []
+
+
+def test_switching_between_internal_and_letsencrypt(le_manager):
+    m = le_manager
+    m.create_app(FORM)
+    old_serial = m.get("grafana")["cert"]["serial"]
+    m.update_app("grafana", LE_FORM)
+    assert "cert" not in m.get("grafana")
+    assert "certResolver" in open(dyn(m, "app-grafana.yml")).read()
+    m.update_app("grafana", FORM)
+    app = m.get("grafana")
+    assert app["cert"]["serial"] != old_serial and os.path.isfile(app["cert"]["cert_path"])
+    assert "certResolver" not in open(dyn(m, "app-grafana.yml")).read()
+
+
+def test_letsencrypt_apps_survive_regenerate_disable_and_list_edits(le_manager):
+    m = le_manager
+    m.create_ip_list({"name": "admins", "sources": "10.0.0.20"})
+    m.create_app({**LE_FORM, "ip_lists": ["admins"]})
+    os.unlink(dyn(m, "app-grafana.yml"))
+    written, _ = m.regenerate_all()
+    assert "app-grafana.yml" in written
+    m.update_ip_list("admins", {"sources": "10.0.0.21"})
+    assert "10.0.0.21" in open(dyn(m, "app-grafana.yml")).read()
+    m.set_enabled("grafana", False)
+    assert not os.path.exists(dyn(m, "app-grafana.yml"))
+    m.set_enabled("grafana", True)
+    assert "cert" not in m.get("grafana") and os.path.exists(dyn(m, "app-grafana.yml"))
+    renewed, errors = m.renew_due()
+    assert "grafana" not in renewed and not errors

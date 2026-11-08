@@ -22,6 +22,7 @@
     <dt>FQDN</dt><dd class="mono">{{ a.fqdn }}</dd>
     {% if a.extra_sans %}<dt>Extra names</dt><dd class="mono">{{ a.extra_sans | join(', ') }}</dd>{% endif %}
     <dt>Backend</dt><dd class="mono">{{ a.backend_url }}</dd>
+    <dt>Certificate</dt><dd>{{ "Let's Encrypt, obtained and renewed by Traefik" if a.cert_source == 'letsencrypt' else 'Internal CA' }}</dd>
     {% if a.start_path %}<dt>Start path</dt><dd><span class="mono">/</span> redirects to <span class="mono">{{ a.start_path }}</span></dd>{% endif %}
     <dt>Allowed sources</dt><dd>
       {% for name in a.ip_lists or [] %}{% if name in lists %}<a class="mono" href="{{ url_for('ip_list_edit', name=name) }}">{{ name }}</a>{% else %}<span class="mono">{{ name }}</span> <span class="badge badge-err" title="This list no longer exists, so the app admits no one. Edit the app to remove it.">missing</span>{% endif %}{% if not loop.last or a.allowed_sources %}, {% endif %}{% endfor %}
@@ -57,6 +58,7 @@
     {{ check('DNS', checks.dns) }}
     {{ check('Backend', checks.backend) }}
     {{ check('Traefik', checks.traefik) }}
+    {% if checks.certificate %}{{ check('Certificate', checks.certificate) }}{% endif %}
     {% if e2e %}{{ check('End-to-end', e2e) }}{% endif %}
   </dl>
   <div class="actions">
@@ -67,6 +69,22 @@
 
 <section class="card">
   <h2>Certificate</h2>
+  {% if a.cert_source == 'letsencrypt' %}
+  {% set served = checks.certificate.info if checks.certificate else None %}
+  {% if served %}
+  <p class="help">The certificate Traefik serves for <span class="mono">{{ a.fqdn }}</span> right now.</p>
+  <dl class="kv">
+    <dt>Expires</dt><dd><span class="badge badge-{{ served.not_after | expiry_class }} mono">{{ served.not_after[:10] }} · {{ served.not_after | days_left }}d</span></dd>
+    <dt>Serial</dt><dd class="mono">{{ served.serial }}</dd>
+    <dt>Names</dt><dd class="mono">{{ served.sans | join(', ') }}</dd>
+    <dt>Valid</dt><dd class="mono">{{ served.not_before }} – {{ served.not_after }}</dd>
+    <dt>Issuer</dt><dd>{{ served.issuer }}</dd>
+    <dt>SHA-256</dt><dd class="mono">{{ served.sha256 }}</dd>
+  </dl>
+  {% elif not a.enabled %}<p class="muted">The app is disabled, so Traefik serves no certificate for it.</p>
+  {% else %}<p class="muted">Could not read the certificate Traefik serves.</p>{% endif %}
+  <p class="help">Traefik requests this certificate from Let's Encrypt with a DNS challenge in Cloudflare, keeps it in <span class="mono">acme.json</span> and renews it about 30 days before it expires. Changing the names gets a new one.</p>
+  {% else %}
   {% if cert %}
   <dl class="kv">
     <dt>Expires</dt><dd>{{ expiry(a.cert) }}</dd>
@@ -82,6 +100,7 @@
     {% if cert %}<a class="btn" href="{{ url_for('app_fullchain', slug=a.slug) }}">Download fullchain.pem</a>{% endif %}
   </div>
   <p class="help">The private key stays on the host and cannot be downloaded here.</p>
+  {% endif %}
 </section>
 
 {% if a.kind == 'external' %}

@@ -14,6 +14,15 @@ RESERVED = "_manager"
 # The unspecified addresses never appear as a client's source, so this allow list admits no one.
 DENY_ALL = ["0.0.0.0/32", "::/128"]
 
+# Where an app's certificate comes from: signed here by the internal CA, or obtained and
+# renewed by Traefik itself from Let's Encrypt (its ACME cert resolver).
+CERT_SOURCES = ("internal", "letsencrypt")
+DEFAULT_RESOLVER = "letsencrypt"
+
+
+def uses_letsencrypt(app):
+    return app.get("cert_source") == "letsencrypt"
+
 
 def _yaml(data):
     return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=1000)
@@ -63,8 +72,10 @@ def effective_sources(app, ip_lists):
     return list(dict.fromkeys(out))
 
 
-def render_app(app, ip_lists=None):
-    """app-<slug>.yml for one app record. ip_lists maps list names to entries."""
+def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
+    """app-<slug>.yml for one app record. ip_lists maps list names to entries.
+
+    resolver is the name of Traefik's ACME cert resolver, used for Let's Encrypt apps."""
     slug = app["slug"]
     middlewares = []
     if app.get("lan_only", True):
@@ -85,7 +96,8 @@ def render_app(app, ip_lists=None):
     }
     if middlewares:
         router["middlewares"] = middlewares
-    router["tls"] = {}
+    # Let's Encrypt: Traefik asks for a cert covering the names in the rule and renews it itself.
+    router["tls"] = {"certResolver": resolver} if uses_letsencrypt(app) else {}
 
     lb = {"passHostHeader": bool(app.get("pass_host_header", True)),
           "servers": [{"url": app["backend_url"]}]}
@@ -105,7 +117,7 @@ def render_app(app, ip_lists=None):
 
     data = {"http": http}
     cert = app.get("cert")
-    if cert:
+    if cert and not uses_letsencrypt(app):
         data["tls"] = {"certificates": [{"certFile": cert["cert_path"], "keyFile": cert["key_path"]}]}
     return _dump(data, slug)
 

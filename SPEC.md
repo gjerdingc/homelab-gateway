@@ -259,6 +259,8 @@ Validate all of these at startup. On bad config, log a clear error and show it o
 | `KEY_TYPE` | no | `rsa-2048` | `rsa-2048` (matches the existing RSA PKI) or `ec-p256` |
 | `TRAEFIK_API_URL` | no | `http://traefik:8080` | |
 | `BASIC_AUTH_USERS` | no | – | Optional htpasswd-style string. If set, applied to the manager and dashboard routers |
+| `LETSENCRYPT_ENABLED` | no | `false` | Offer Let's Encrypt as an app's certificate source. Traefik needs `CF_DNS_API_TOKEN` (stack env, Traefik only) |
+| `LETSENCRYPT_RESOLVER` | no | `letsencrypt` | Name of Traefik's ACME cert resolver, as configured in `docker-compose.yml` |
 
 ---
 
@@ -273,6 +275,7 @@ apps:
     fqdn: grafana.gjecorp.net           # unique across apps, must match ALLOWED_DOMAINS
     extra_sans: [grafana2.gjecorp.net]  # optional DNS SANs (also domain-checked)
     backend_url: http://grafana:3000    # http|https://host:port[/path-prefix not allowed]
+    cert_source: internal               # internal (signed here) | letsencrypt (Traefik ACME, DNS-01 via Cloudflare; no cert record)
     backend_tls_skip_verify: false      # only for https backends with untrusted certs
     pass_host_header: true
     lan_only: true                      # attach lan-only middleware (default true)
@@ -350,6 +353,8 @@ tls:
   - Router `traefik-dashboard`: `Host(`MANAGER_FQDN`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))` → `api@internal`, explicit high `priority` (e.g. 100), with `lan-only` (+ `basic-auth`). Only when `DASHBOARD_ENABLED`.
   - Router `traefik-manager`: `Host(`MANAGER_FQDN`)` → `http://traefik-manager:8000`, priority 10, with `lan-only` (+ `basic-auth`).
   - Therefore the manager must **not** use any URL under `/api` or `/dashboard`. Use e.g. `/apps`, `/status`, `/log`, `/static`. The GUI links to `/dashboard/` from the nav bar.
+
+**Let's Encrypt apps** (`cert_source: letsencrypt`): the router gets `tls: {certResolver: <LETSENCRYPT_RESOLVER>}` and the file has no `tls.certificates`. Traefik obtains, stores (`acme.json`) and renews the cert; the manager issues nothing, skips these apps when renewing, and shows the cert Traefik serves (the "Certificate" check). The end-to-end check verifies them against the public roots instead of the internal root.
 
 **Bootstrap:** on first start, if the manager has no cert of its own, issue one for `MANAGER_FQDN` and write `_core.yml`. Store it in `apps.yml` under a reserved `_manager` entry. It renews like any app but can't be deleted from the GUI.
 

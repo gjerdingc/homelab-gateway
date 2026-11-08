@@ -29,14 +29,29 @@ services:
       - --entrypoints.websecure.http.tls=true
       # Trust internal-CA-signed HTTPS backends
       - --serversTransport.rootCAs=/pki/root_ca.crt
+      # Let's Encrypt for apps that choose it in the manager (router tls.certResolver: letsencrypt).
+      # DNS-01 through Cloudflare, so the apps never have to be reachable from the internet.
+      # Harmless while no app uses it; needs CF_DNS_API_TOKEN once one does.
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-}
+      - --certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+      # Check the TXT record on public resolvers, not on the LAN DNS (which may answer
+      # gjecorp.net itself and never see the challenge record).
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53
     volumes:
       - /opt/traefik/dynamic:/etc/traefik/dynamic:ro
       - /opt/traefik/certs:/etc/traefik/certs:ro
       - /opt/traefik/logs:/var/log/traefik
+      # Let's Encrypt account and certificates (acme.json, created by Traefik with mode 600)
+      - /opt/traefik/acme:/etc/traefik/acme
       # Only the root CERTIFICATE. Traefik never sees the intermediate key.
       - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
     environment:
       TZ: Europe/Oslo
+      # Cloudflare API token with Zone:DNS:Edit (and Zone:Zone:Read) on gjecorp.net.
+      # Only Traefik gets it; the manager never sees it.
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:-}
     networks: [proxy]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -72,6 +87,8 @@ services:
       BASIC_AUTH_USERS: ${BASIC_AUTH_USERS:-}
       STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
+      # Offer Let's Encrypt on the app form. Set CF_DNS_API_TOKEN first.
+      LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
     volumes:
       - /opt/traefik/dynamic:/etc/traefik/dynamic
       - /opt/traefik/certs:/etc/traefik/certs

@@ -1,6 +1,8 @@
 """Load the intermediate CA and issue leaf certificates with it."""
 
 import datetime
+import os
+import tempfile
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -146,7 +148,7 @@ class CA:
 
     def info(self):
         return {"intermediate": cert_info(self.cert), "root": cert_info(self.root),
-                "expires_soon": self.expires_soon}
+                "expires_soon": self.expires_soon, "permitted": permitted_domains(self.cert)}
 
     def issue(self, fqdn, extra_sans, validity_days, key_type="rsa-2048"):
         """Issue a leaf. Returns (fullchain_pem, key_pem, cert_info dict)."""
@@ -208,3 +210,115 @@ def load_ca(config):
         return None, str(exc)
     except Exception as exc:  # unexpected parsing problems should still surface in the GUI
         return None, f"Could not load the CA: {exc}"
+
+
+# ---- Automatic CA (fresh installs) ----------------------------------------------
+
+AUTO_ROOT_DAYS = 20 * 365
+AUTO_INTERMEDIATE_DAYS = 10 * 365
+
+
+def permitted_domains(ca_cert):
+    """The DNS names a CA's name constraints permit, or [] when it has none (anything goes)."""
+    try:
+        nc = ca_cert.extensions.get_extension_for_class(x509.NameConstraints).value
+    except x509.ExtensionNotFound:
+        return []
+    return [s.value.lstrip(".") for s in (nc.permitted_subtrees or []) if isinstance(s, x509.DNSName)]
+
+
+def _ca_builder(subject, issuer, public_key, days, domains, path_length):
+    now = utcnow()
+    return (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(days=days))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=path_length), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=False, key_encipherment=False, content_commitment=False,
+            data_encipherment=False, key_agreement=False, key_cert_sign=True,
+            crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
+        .add_extension(x509.NameConstraints(
+            permitted_subtrees=[x509.DNSName(d) for d in domains], excluded_subtrees=None), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
+    )
+
+
+def create_ca(domains, password=None):
+    """A new root and intermediate, both limited to `domains` by name constraints.
+
+    Returns (root_cert_pem, intermediate_cert_pem, intermediate_key_pem). The root key only signs
+    the intermediate and is then dropped: it is never written anywhere, so nothing can sign another
+    intermediate under this root. The intermediate key is encrypted when a password is given."""
+    if not domains:
+        raise CAError("Cannot create a CA without at least one domain (ALLOWED_DOMAINS)")
+    label = f"{domains[0]} {utcnow():%Y-%m-%d}"
+    root_name = x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Homelab Gateway"),
+                           x509.NameAttribute(NameOID.COMMON_NAME, f"Homelab Gateway Root CA {label}")])
+    inter_name = x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Homelab Gateway"),
+                            x509.NameAttribute(NameOID.COMMON_NAME, f"Homelab Gateway Intermediate CA {label}")])
+
+    root_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    root = _ca_builder(root_name, root_name, root_key.public_key(), AUTO_ROOT_DAYS, domains, None).sign(
+        root_key, hashes.SHA256())
+
+    inter_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+    inter = (
+        _ca_builder(inter_name, root_name, inter_key.public_key(), AUTO_INTERMEDIATE_DAYS, domains, 0)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()), critical=False)
+        .sign(root_key, hashes.SHA256())
+    )
+    del root_key
+
+    encryption = (serialization.BestAvailableEncryption(password.encode()) if password
+                  else serialization.NoEncryption())
+    key_pem = inter_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, encryption)
+    return (root.public_bytes(serialization.Encoding.PEM), inter.public_bytes(serialization.Encoding.PEM), key_pem)
+
+
+def _write(path, data, mode):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def ensure_ca(config, apps):
+    """Create the CA on a fresh install. Returns (message or None, error or None).
+
+    Does nothing when any CA file exists (a CA was supplied, or an earlier run made one); load_ca
+    then reports what is wrong with it. Refuses when apps already hold certificates, because then
+    the CA files are more likely mounted from the wrong place than really new; CA_AUTO_CREATE=force
+    overrides that."""
+    if not config.ca_auto_create:
+        return None, None
+    paths = (config.root_ca_path, config.ca_cert_path, config.ca_key_path)
+    if any(os.path.lexists(p) for p in paths):
+        return None, None
+    if any(a.get("cert") for a in apps) and not config.ca_auto_create_force:
+        return None, ("No CA files were found, but apps already hold certificates from a CA, so no new CA was "
+                      f"created. Check that PKI_DIR points at your CA (looked for {', '.join(paths)}). "
+                      "To start over with a new CA anyway, set CA_AUTO_CREATE=force; every device then needs "
+                      "the new root certificate.")
+    try:
+        root_pem, inter_pem, key_pem = create_ca(config.allowed_domains, config.ca_key_password)
+        _write(config.ca_key_path, key_pem, 0o600)
+        _write(config.ca_cert_path, inter_pem, 0o644)
+        _write(config.root_ca_path, root_pem, 0o644)  # last: its presence marks a complete CA
+    except (OSError, CAError) as exc:
+        return None, f"Could not create the CA: {exc}"
+    root = x509.load_pem_x509_certificate(root_pem)
+    return (f"Created a new internal CA for {', '.join(config.allowed_domains)}: {_cn(root.subject)}, "
+            f"valid until {iso(root.not_valid_after_utc)}. Install its root certificate on your devices "
+            "(Status > Download root certificate)."), None

@@ -30,7 +30,9 @@ The PKI folder layout:
 └── root.tpl
 ```
 
-Only `intermediate/` and `root/root_ca.crt` are mounted, never the whole folder.
+Only `intermediate/` and `root/` are mounted, never the whole folder. The manager can write to both (it creates a CA there on a fresh install), but it never touches a CA that is present, so this step CA stays as it is. `root/` must keep holding only the root certificate.
+
+Because `apps.yml` already holds certificates, the manager also refuses to create a new CA if `PKI_DIR` is ever wrong or missing: it shows an error instead of silently switching CA.
 
 ## Stack variables to keep the deployment unchanged
 
@@ -38,7 +40,7 @@ These became variables when the stack was made portable. Without them the stack 
 
 | Variable | Value | Without it |
 |---|---|---|
-| `PKI_DIR` | `/home/christian/pki` | The CA is looked for in `/opt/traefik/pki` and does not load |
+| `PKI_DIR` | `/home/christian/pki` | The CA is looked for in `/opt/traefik/pki`; the manager finds none, refuses to make a new one (apps hold certificates) and shows a red banner |
 | `TZ` | `Europe/Oslo` | Logs and daily usage totals use UTC |
 | `SSO_DOMAIN` (oauth2-proxy stack) | `oplassen.net` | The oauth2-proxy stack refuses to deploy; it no longer has a default |
 

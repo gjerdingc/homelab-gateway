@@ -36,7 +36,9 @@ class Config:
         self.certs_dir = env.get("TM_CERTS_DIR", "/etc/traefik/certs")
         self.data_dir = env.get("TM_DATA_DIR", "/data")
         self.pki_dir = env.get("TM_PKI_DIR", "/pki/intermediate")
-        self.root_ca_path = env.get("TM_ROOT_CA_PATH", "/pki/root_ca.crt")
+        self.root_ca_file = env.get("ROOT_CA_FILE", "").strip() or "root_ca.crt"
+        self.root_ca_path = env.get("TM_ROOT_CA_PATH") or os.path.join(
+            env.get("TM_ROOT_CA_DIR", "/pki/root"), self.root_ca_file)
 
         self.manager_fqdn = env.get("MANAGER_FQDN", "").strip().lower().rstrip(".")
         self.dashboard_enabled = _bool(env.get("DASHBOARD_ENABLED"), True)
@@ -51,8 +53,11 @@ class Config:
         self.sso_auth_url = env.get("SSO_AUTH_URL", "http://oauth2-proxy:4180").strip().rstrip("/")
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
         self.lan_cidrs = _split(env.get("LAN_CIDRS"))
-        self.ca_cert_file = env.get("CA_CERT_FILE", "").strip()
-        self.ca_key_file = env.get("CA_KEY_FILE", "").strip()
+        self.ca_cert_file = env.get("CA_CERT_FILE", "").strip() or "intermediate_ca.crt"
+        self.ca_key_file = env.get("CA_KEY_FILE", "").strip() or "intermediate_ca_key"
+        # Create a CA on first start when there is none (and no app holds a cert from an earlier one).
+        self.ca_auto_create = _bool(env.get("CA_AUTO_CREATE"), True)
+        self.ca_auto_create_force = env.get("CA_AUTO_CREATE", "").strip().lower() == "force"
         self.ca_key_password = env.get("CA_KEY_PASSWORD") or None
         # The address app names should resolve to (DNS check only). PI_IP is the old name.
         self.host_ip_var = "HOST_IP" if env.get("HOST_IP", "").strip() else "PI_IP"
@@ -106,11 +111,11 @@ class Config:
                 ipaddress.ip_network(c, strict=False)
             except ValueError:
                 e.append(f"LAN_CIDRS: {c!r} is not a valid CIDR")
-        for name, value in (("CA_CERT_FILE", self.ca_cert_file), ("CA_KEY_FILE", self.ca_key_file)):
-            if not value:
-                e.append(f"{name} is required")
-            elif "/" in value or value.startswith("."):
-                e.append(f"{name} must be a plain filename inside the intermediate folder, got {value!r}")
+        for name, value, folder in (("CA_CERT_FILE", self.ca_cert_file, "intermediate"),
+                                    ("CA_KEY_FILE", self.ca_key_file, "intermediate"),
+                                    ("ROOT_CA_FILE", self.root_ca_file, "root")):
+            if "/" in value or value.startswith("."):
+                e.append(f"{name} must be a plain filename inside the {folder} folder, got {value!r}")
         if self.key_type not in ("rsa-2048", "ec-p256"):
             e.append(f"KEY_TYPE must be rsa-2048 or ec-p256, got {self.key_type!r}")
         if self.host_ip:
@@ -137,10 +142,6 @@ class Config:
             parsed = urlparse(self.sso_auth_url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.path not in ("", "/"):
                 e.append(f"SSO_AUTH_URL {self.sso_auth_url!r} must look like http://oauth2-proxy:4180")
-        if not self.ca_key_password:
-            self.warnings.append("CA_KEY_PASSWORD is not set; this only works if the CA key is not encrypted")
-        if not os.path.isfile(self.root_ca_path):
-            self.warnings.append(f"Root CA certificate not found at {self.root_ca_path}")
 
     @property
     def ca_cert_path(self):

@@ -3,7 +3,8 @@
 > **Note:** this is the original design, written for one lab (values in §2.1). It is kept for the
 > reasoning and the acceptance criteria. Paths, defaults and the compose file have since been made
 > portable: `TM_ROOT`, `PKI_DIR`, `TZ`, `HOST_IP` (formerly `PI_IP`), a prebuilt image instead of
-> `build:`, and a choice of DNS provider for Let's Encrypt. The [README](README.md) is current;
+> `build:`, a choice of DNS provider for Let's Encrypt, and a CA the manager creates itself on a fresh
+> install (see "Certificates" in the README). The [README](README.md) is current;
 > [docs/lab.md](docs/lab.md) holds the lab's own values.
 
 Status: v3 (all lab values filled in), ready to hand to an implementer

@@ -40,58 +40,26 @@ Killing the manager does not affect traffic: Traefik only reads the files the ma
 - Ports **80 and 443 free** on the host (stop any other reverse proxy first).
 - A **domain or subdomain** for your apps, e.g. `lab.example.com`, and a **DNS server on your LAN**
   where you can add records (Pi-hole, AdGuard Home, your router). The domain only has to exist publicly
-  if you want Let's Encrypt certificates.
-- `openssl` on the host, to create the internal CA once.
+  for Let's Encrypt certificates (optional, recommended).
 
 ## Quick start
 
 The examples use `lab.example.com` for the domain, `192.168.1.10` for the host and `192.168.1.0/24` for the LAN.
 
-### 1. Folders and network
-
-```bash
-sudo mkdir -p /opt/traefik/{dynamic,certs,manager,logs,acme,pki/intermediate,pki/root}
-```
+### 1. Network
 
 ```bash
 docker network create proxy
 ```
 
-The `proxy` network is shared with your apps, so it lives outside the stack. Skip the second command if it already exists.
+The `proxy` network is shared with your apps, so it lives outside the stack. Skip this if it already exists. Docker creates the folders under `/opt/traefik` on the first deploy.
 
 ### 2. DNS
 
 Point the manager's name at the host, e.g. `traefik.lab.example.com -> 192.168.1.10`.
 Easiest: a **wildcard record** `*.lab.example.com -> 192.168.1.10`, so every app you add later resolves without another DNS entry.
 
-### 3. Internal CA (once)
-
-The manager signs app certificates with an intermediate CA. Create a root and an intermediate with `openssl`.
-The intermediate gets a **name constraint**, so even if the manager is compromised, it can only sign names under your domain.
-Run this as root (`sudo -i`); it asks for two passwords, one per key:
-
-```bash
-cd /opt/traefik/pki && DOMAIN=lab.example.com
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -aes-256-cbc -out root/root_ca.key
-openssl req -x509 -new -key root/root_ca.key -sha256 -days 3650 -subj "/CN=Home Lab Root CA" \
-  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out root/root_ca.crt
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out intermediate/intermediate_ca_key
-openssl req -new -key intermediate/intermediate_ca_key -subj "/CN=Home Lab Intermediate CA" -out intermediate.csr
-printf '%s\n' "basicConstraints=critical,CA:TRUE,pathlen:0" "keyUsage=critical,keyCertSign,cRLSign" \
-  "nameConstraints=critical,permitted;DNS:$DOMAIN" "subjectKeyIdentifier=hash" "authorityKeyIdentifier=keyid" > intermediate.ext
-openssl x509 -req -in intermediate.csr -CA root/root_ca.crt -CAkey root/root_ca.key -CAcreateserial \
-  -days 1825 -sha256 -extfile intermediate.ext -out intermediate/intermediate_ca.crt
-openssl verify -CAfile root/root_ca.crt intermediate/intermediate_ca.crt
-```
-
-The intermediate key's password becomes `CA_KEY_PASSWORD` below.
-**Move `root/root_ca.key` off the host** (a USB stick, a password manager) once this works. It is only needed again to make a new intermediate in five years. Nothing in the stack reads it.
-
-For more than one domain, add more entries to the constraint: `permitted;DNS:lab.example.com,permitted;DNS:example.org`.
-
-An existing CA works too (e.g. one made with `step`): put the intermediate cert and key in `pki/intermediate/` and the root cert in `pki/root/`, and set `CA_CERT_FILE`, `CA_KEY_FILE` and `ROOT_CA_FILE` to their file names. Or set `PKI_DIR` to where they already are.
-
-### 4. Deploy
+### 3. Deploy
 
 **Portainer or Dockhand:** add a stack from a Git repository: `https://github.com/gjerdingc/homelab-gateway`, compose path `docker-compose.yml`. Enter the variables below as the stack's environment variables.
 
@@ -112,18 +80,24 @@ The variables you must set:
 | Variable | Example | Notes |
 |---|---|---|
 | `MANAGER_FQDN` | `traefik.lab.example.com` | GUI and dashboard |
-| `ALLOWED_DOMAINS` | `lab.example.com` | Names outside this are refused |
+| `ALLOWED_DOMAINS` | `lab.example.com` | Names outside this are refused. The internal CA is limited to these |
 | `LAN_CIDRS` | `192.168.1.0/24` | For the `lan-only` middleware |
-| `CA_KEY_PASSWORD` | *(the intermediate key password)* | Never commit this |
 
 Recommended: `HOST_IP` (`192.168.1.10`, used by the DNS check), `TZ` (e.g. `Europe/Oslo`, default `UTC`) and `BASIC_AUTH_USERS` (a login for the GUI, see [Security notes](#security-notes)).
 [`.env.example`](.env.example) lists every variable with an example; the full list is under [Configuration](#configuration).
 
-### 5. Open it
+On first start the manager creates its own certificate authority for `ALLOWED_DOMAINS` (see [Certificates](#certificates)). There is nothing to prepare.
 
-Open `https://traefik.lab.example.com`. If it does not load, use `http://192.168.1.10:8090` and look at **Status** and **Log**.
+### 4. Open it and trust the root certificate
 
-Install the root certificate on your devices (download it from **Status**) so browsers trust the issued certs. Or use [Let's Encrypt](#lets-encrypt-certificates) for apps that should work on any device without that.
+Open `https://traefik.lab.example.com`. Your browser warns about the certificate the first time, because it doesn't know the new CA yet: accept it once, or use `http://192.168.1.10:8090` (no TLS).
+If neither loads, look at **Status** and **Log** on the `:8090` address.
+
+On **Status**, choose **Download root certificate** and install it on your devices; the page shows how for Windows, macOS, Linux, Firefox, iPhone and Android. From then on every app you add with the internal CA is trusted on those devices.
+
+### 5. Recommended: Let's Encrypt
+
+Installing the root certificate works for your own devices. For apps that guests, family or work laptops use, set up [Let's Encrypt](#lets-encrypt-certificates): those certificates are trusted everywhere, without installing anything. It takes an API token from your DNS provider and two variables.
 
 ## Configuration
 
@@ -132,9 +106,10 @@ Install the root certificate on your devices (download it from **Status**) so br
 | `MANAGER_FQDN` | – | Required. The GUI and the Traefik dashboard. Must be inside `ALLOWED_DOMAINS` |
 | `ALLOWED_DOMAINS` | – | Required. Comma-separated. Apps can only use names under these |
 | `LAN_CIDRS` | – | Required. Comma-separated. The manager, and apps with *LAN only*, only answer these clients |
-| `CA_KEY_PASSWORD` | – | The intermediate key's password. Empty only works for an unencrypted key |
+| `CA_KEY_PASSWORD` | – | The intermediate key's password. For a CA the manager creates, set it before the first start to get an encrypted key; then it is needed on every start |
+| `CA_AUTO_CREATE` | `true` | Create a CA on first start when `PKI_DIR` has none. `false` to never do that, `force` to make a new one even though apps hold certs from an old one |
 | `CA_CERT_FILE` / `CA_KEY_FILE` | `intermediate_ca.crt` / `intermediate_ca_key` | File names inside `PKI_DIR/intermediate` |
-| `ROOT_CA_FILE` | `root_ca.crt` | File name inside `PKI_DIR/root`. Only this one file is mounted |
+| `ROOT_CA_FILE` | `root_ca.crt` | File name inside `PKI_DIR/root` |
 | `HOST_IP` | – | This host's LAN IP. The DNS check warns when an app name resolves elsewhere. (`PI_IP` is the old name and still works) |
 | `TZ` | `UTC` | Time zone for logs and the daily usage totals |
 | `TM_ROOT` | `/opt/traefik` | Host folder for `dynamic`, `certs`, `manager`, `logs` and `acme` |
@@ -174,8 +149,8 @@ With plain Docker: `docker compose -f docker-compose.yml -f docker-compose.build
 | `/opt/traefik/manager` | `apps.yml` (source of truth), `archive/` (deleted apps), `manager.log`, `stats.json` (usage). Back this up. |
 | `/opt/traefik/logs` | Traefik's JSON access log, read by the manager for the Usage page. |
 | `/opt/traefik/acme` | `acme.json`: Traefik's Let's Encrypt account key and certificates. Traefik only; contains private keys. Back this up. |
-| `/opt/traefik/pki/intermediate` | Intermediate cert and encrypted key, mounted read-only into the manager only. |
-| `/opt/traefik/pki/root/root_ca.crt` | Root **certificate** only (single file mount). The root key is offline and never mounted. |
+| `/opt/traefik/pki/intermediate` | Intermediate cert and key, mounted into the manager only. Back this up. |
+| `/opt/traefik/pki/root` | Root **certificate** only, mounted into the manager and (read-only) Traefik. Keep no root key here. |
 
 `/opt/traefik` is `TM_ROOT` and `/opt/traefik/pki` is `PKI_DIR`. Backing up both folders is a full backup.
 
@@ -223,12 +198,52 @@ Any app or external service can be limited to certain clients. Other clients get
 - The source check comes on top of **LAN only**: with both on, a client must be in `LAN_CIDRS` and match the app's sources. To let in an address outside `LAN_CIDRS`, untick LAN only for that app.
 - Traefik checks the address it sees as the source. If clients reach it through NAT or another proxy, every client may appear as the same address.
 
-## Let's Encrypt certificates
+## Certificates
 
 Each app chooses where its certificate comes from, under **Certificate** on its form:
 
-- **Internal CA** (the default): issued by the manager with the intermediate CA. Clients need the root certificate installed.
-- **Let's Encrypt**: publicly trusted, so phones, guests' devices and tools with their own trust store accept it without installing anything. Traefik obtains and renews it itself; the manager only writes `tls.certResolver: letsencrypt` on the app's router.
+- **Internal CA**: issued by the manager. Always available. Devices need the root certificate installed.
+- **Let's Encrypt** (recommended, optional): publicly trusted, so phones, guests' devices and tools with their own trust store accept it without installing anything. Traefik obtains and renews it itself; the manager only writes `tls.certResolver: letsencrypt` on the app's router. Once it is set up, new apps start with it selected.
+
+The manager's own name (`MANAGER_FQDN`) always uses the internal CA.
+
+### The internal CA
+
+On the first start, if `PKI_DIR` holds no CA, the manager creates one and writes it to the **Log**:
+
+- A root and an intermediate certificate, both with a **name constraint** for `ALLOWED_DOMAINS`. Devices that trust the root therefore accept it only for names under your domains, never for your bank: even someone who took over the manager could not use it against other sites.
+- The **root key is thrown away** once it has signed the intermediate. It is never written to disk, so nothing can create another intermediate under your root. The intermediate is valid for 10 years, the root for 20.
+- The intermediate key is in `PKI_DIR/intermediate`, encrypted if `CA_KEY_PASSWORD` was set at the first start. Back the folder up; with it, a reinstall keeps the same CA and devices keep trusting it.
+
+Download the root certificate from **Status** and install it on your devices. Check that the SHA-256 fingerprint the device shows matches the one on **Status**.
+
+**Adding a domain later:** the CA can only sign names under the domains it was made for. If you add one to `ALLOWED_DOMAINS`, the manager shows a warning. Use Let's Encrypt for names under the new domain, or make a new CA: stop the stack, move `PKI_DIR` aside, set `CA_AUTO_CREATE=force` and start it. Certificates are reissued from the new CA as they are renewed (or press **Renew now** on each app), and every device needs the new root certificate.
+
+The manager never replaces a CA that is there. If the CA files are missing but apps already hold certificates, it refuses to make a new one and shows an error instead, because a mistyped `PKI_DIR` is the likelier cause.
+
+### Your own CA
+
+To use a CA you already have, put the intermediate cert and key in `PKI_DIR/intermediate/` and the root cert in `PKI_DIR/root/` before the first start, and set `CA_CERT_FILE`, `CA_KEY_FILE`, `ROOT_CA_FILE` and `CA_KEY_PASSWORD`. Both PKCS#8 and traditional key formats work, including keys made with `step`. Give the intermediate a name constraint if you can.
+
+To make one yourself with `openssl` and keep the root key (offline), run this as root in `PKI_DIR`; it asks for a password for each key:
+
+```bash
+DOMAIN=lab.example.com
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -aes-256-cbc -out root/root_ca.key
+openssl req -x509 -new -key root/root_ca.key -sha256 -days 3650 -subj "/CN=Home Lab Root CA" \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out root/root_ca.crt
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out intermediate/intermediate_ca_key
+openssl req -new -key intermediate/intermediate_ca_key -subj "/CN=Home Lab Intermediate CA" -out intermediate.csr
+printf '%s\n' "basicConstraints=critical,CA:TRUE,pathlen:0" "keyUsage=critical,keyCertSign,cRLSign" \
+  "nameConstraints=critical,permitted;DNS:$DOMAIN" "subjectKeyIdentifier=hash" "authorityKeyIdentifier=keyid" > intermediate.ext
+openssl x509 -req -in intermediate.csr -CA root/root_ca.crt -CAkey root/root_ca.key -CAcreateserial \
+  -days 1825 -sha256 -extfile intermediate.ext -out intermediate/intermediate_ca.crt
+openssl verify -CAfile root/root_ca.crt intermediate/intermediate_ca.crt
+```
+
+Then **move `root/root_ca.key` off the host**: the `root` folder is mounted into both containers. Set `CA_KEY_PASSWORD` to the intermediate key's password.
+
+## Let's Encrypt certificates
 
 Traefik proves control of the name with a **DNS-01 challenge**: it creates a `_acme-challenge.<name>` TXT record through your DNS provider's API, Let's Encrypt looks it up, and Traefik removes it. Nothing has to be reachable from the internet and the app's own A record can stay on the LAN DNS only.
 
@@ -282,6 +297,7 @@ In the stack:
 - The challenge record is checked on public resolvers (`ACME_DNS_RESOLVERS`), not on the LAN DNS, because a LAN DNS server may answer for the domain itself and never see the TXT record.
 - Wildcards are still not supported; each app gets a certificate for its FQDN and extra names.
 - The manager's own name (`MANAGER_FQDN`) keeps its internal certificate.
+- With Let's Encrypt set up, the app form selects it for new apps. You can still pick the internal CA per app.
 
 ## Google sign-in
 
@@ -354,7 +370,9 @@ Traefik's access log goes to that file instead of the container output, so it do
 | Stack fails to start: `manifest unknown` or `denied` pulling `ghcr.io/.../traefik-manager` | The image for that `TM_VERSION` does not exist yet, or the package is private. Check the repository's *Packages*, or build from source with `docker-compose.build.yml`. |
 | Stack fails to start: `network proxy declared as external, but could not be found` | Run `docker network create proxy` once. |
 | Red banner "CA not loaded: ... CA_KEY_PASSWORD" | Wrong or missing password. Both PKCS#8 and traditional `step` key formats are supported. If the password is right and it still fails, convert once: `openssl pkcs8 -topk8 -v2 aes-256-cbc -in intermediate_ca_key -out intermediate_ca_key.p8`, then set `CA_KEY_FILE=intermediate_ca_key.p8` (keep the original). |
-| Red banner about the root certificate, or Traefik will not start | `PKI_DIR/root/ROOT_CA_FILE` does not exist. Docker then creates an empty directory in its place: remove it, put the file there, and redeploy. |
+| Red banner "No CA files were found, but apps already hold certificates" | `PKI_DIR` does not point at your CA (often after moving to a new host or changing the variable). Fix `PKI_DIR`. To really start over with a new CA, set `CA_AUTO_CREATE=force`; see [The internal CA](#the-internal-ca). |
+| Red banner "Root CA certificate ... not found" or "CA key not found" | Some CA files are there and some are not. The manager only creates a CA when none of them exist. Restore the missing file, or move the folder aside to get a new CA. |
+| Warning "The internal CA can only sign names under ..." | `ALLOWED_DOMAINS` has a domain the CA was not made for. See *Adding a domain later* under [The internal CA](#the-internal-ca). |
 | Backend check: "name does not resolve" | The app container is not on the `proxy` network, or the name is wrong. |
 | External service gives 500 | The backend uses a certificate Traefik doesn't trust (self-signed). Tick "Do not verify the backend's TLS certificate". |
 | External service gives 502 or times out | Traefik can't reach the IP and port from the container host. Check the service's own firewall or allow-list. |
@@ -367,7 +385,7 @@ Traefik's access log goes to that file instead of the container output, so it do
 
 ## Security notes
 
-- The intermediate CA key is readable by the manager container. Anyone who compromises the manager can issue certs that your devices trust, for any name the intermediate is allowed to sign. Give the intermediate a name constraint (the quick start does) and keep the root key offline.
+- The intermediate CA key is readable by the manager container. Anyone who compromises the manager can issue certs that your devices trust, for any name the intermediate is allowed to sign. The CA the manager creates is limited to `ALLOWED_DOMAINS` and has no root key to make more; for your own CA, add a name constraint and keep the root key offline.
 - The GUI is protected by LAN allow-listing only, unless you set `BASIC_AUTH_USERS`. **Set it** on any network you share with people or devices you don't fully trust.
 - The fallback port 8090 bypasses Traefik and its allow-list. Keep it on the LAN, or bind it to one address with `BREAK_GLASS_PORT`.
 - Issued private keys are unencrypted on disk, as Traefik requires. The GUI never offers them for download.

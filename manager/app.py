@@ -15,7 +15,7 @@ import checks
 import pki
 import store as st
 import traefik_config as tc
-from config import Config
+from config import Config, in_domains
 from renewer import Renewer
 from service import MANAGER_SLUG, ApplyError, Manager
 from stats import Stats, StatsCollector
@@ -63,7 +63,14 @@ def create_app(env=None, start_background=True):
     config = Config(env)
     store = st.Store(config.data_dir)
     actions = st.ActionLog(config.data_dir)
-    ca, ca_error = (None, "Configuration errors prevent loading the CA") if not config.ok else pki.load_ca(config)
+    if config.ok:
+        created, ca_error = pki.ensure_ca(config, store.apps())
+        if created:
+            actions.write(created)
+        ca, load_error = (None, None) if ca_error else pki.load_ca(config)
+        ca_error = ca_error or load_error
+    else:
+        ca, ca_error = None, "Configuration errors prevent loading the CA"
     api = TraefikAPI(config.traefik_api_url)
     manager = Manager(config, ca, ca_error, store, actions, api)
     renewer = Renewer(manager)
@@ -108,6 +115,13 @@ def create_app(env=None, start_background=True):
             banners.append(("error", f"Startup problem: {manager.startup_error}"))
         for e in renewer.last_errors:
             banners.append(("error", f"Last certificate renewal failed: {e}"))
+        if ca:
+            permitted = pki.permitted_domains(ca.cert)
+            uncovered = [d for d in config.allowed_domains if permitted and not in_domains(d, permitted)]
+            if uncovered:
+                banners.append(("warn", f"The internal CA can only sign names under {', '.join(permitted)}, so it "
+                                        f"cannot issue for {', '.join(uncovered)}. Use Let's Encrypt for those names, "
+                                        "or make a new CA (see Certificates in the README)."))
         if ca and ca.expires_soon:
             banners.append(("warn", "The intermediate CA expires within 60 days. Plan a replacement."))
         for w in config.warnings:
@@ -134,7 +148,7 @@ def create_app(env=None, start_background=True):
         return a
 
     def form_defaults(kind="internal"):
-        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "internal",
+        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "letsencrypt" if config.letsencrypt_enabled else "internal",
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
                 "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "security_headers": True, "notes": ""}
 

@@ -16,12 +16,26 @@
     <dt>Intermediate</dt><dd>{{ ca.intermediate.subject }}</dd>
     <dt>Issued by</dt><dd>{{ ca.intermediate.issuer }}</dd>
     <dt>Expires</dt><dd><span class="mono">{{ ca.intermediate.not_after }}</span> · {{ ca.intermediate.not_after | days_left }} days</dd>
+    <dt>Can sign</dt><dd>{% if ca.permitted %}<span class="mono">{{ ca.permitted | join(', ') }}</span> and names under them{% else %}Any name (the CA has no name constraints){% endif %}</dd>
     <dt>Root</dt><dd>{{ ca.root.subject }}</dd>
     <dt>Root expires</dt><dd class="mono">{{ ca.root.not_after }}</dd>
+    <dt>Root SHA-256</dt><dd class="mono">{{ ca.root.sha256 }}</dd>
   </dl>
   {% else %}<div class="alert alert-error">{{ ca_error or 'CA not loaded. Fix the configuration errors first.' }}</div>{% endif %}
-  <div class="actions"><a class="btn" href="{{ url_for('root_ca') }}">Download root_ca.crt</a></div>
-  <p class="help">Install the root certificate on client devices so they trust the certificates issued here.</p>
+  <div class="actions"><a class="btn" href="{{ url_for('root_ca') }}">Download root certificate</a></div>
+  <p class="help">Devices trust the certificates issued here once this root certificate is installed on them. Check that the SHA-256 fingerprint the device shows matches the one above.</p>
+  <details>
+    <summary>How to install it</summary>
+    <dl class="kv">
+      <dt>Windows</dt><dd>Open the file, choose <strong>Install Certificate</strong>, then <strong>Place all certificates in the following store</strong> &gt; <strong>Trusted Root Certification Authorities</strong>. Chrome and Edge use it after a restart.</dd>
+      <dt>macOS</dt><dd>Open the file to add it to Keychain Access, open the certificate there, expand <strong>Trust</strong> and set <strong>When using this certificate</strong> to <strong>Always Trust</strong>.</dd>
+      <dt>Linux</dt><dd>Debian/Ubuntu: <span class="mono">sudo cp root_ca.crt /usr/local/share/ca-certificates/homelab-root.crt &amp;&amp; sudo update-ca-certificates</span>. Fedora: copy it to <span class="mono">/etc/pki/ca-trust/source/anchors/</span> and run <span class="mono">sudo update-ca-trust</span>. Chrome and Firefox on Linux keep their own list: import it in the browser too.</dd>
+      <dt>Firefox</dt><dd>Settings &gt; Privacy &amp; Security &gt; Certificates &gt; <strong>View Certificates</strong> &gt; Authorities &gt; <strong>Import</strong>, and tick <strong>Trust this CA to identify websites</strong>.</dd>
+      <dt>iPhone, iPad</dt><dd>Download it in Safari, then Settings &gt; <strong>Profile Downloaded</strong> &gt; Install. Then Settings &gt; General &gt; About &gt; <strong>Certificate Trust Settings</strong> and switch it on.</dd>
+      <dt>Android</dt><dd>Settings &gt; Security &gt; Encryption &amp; credentials &gt; <strong>Install a certificate</strong> &gt; CA certificate. Only browsers use it; most apps ignore certificates you add.</dd>
+    </dl>
+  </details>
+  {% if not config.letsencrypt_enabled %}<p class="help"><strong>Recommended:</strong> set up Let's Encrypt (see the README). Apps that use it work on every device, guests' phones included, without installing anything.</p>{% endif %}
 </section>
 
 <section class="card">
@@ -31,7 +45,7 @@
     <dt>Resolver</dt><dd class="mono">{{ config.letsencrypt_resolver }}</dd>
     <dt>Apps</dt><dd>{% for a in le_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}</dd>
   </dl>
-  <p class="help">Traefik obtains and renews these certificates itself (DNS challenge at your DNS provider), so they are not part of the renewal below. Problems show up in Traefik's log, not here; the Certificate check on each app shows what Traefik actually serves.</p>
+  <p class="help">Recommended for apps used from devices you don't manage: publicly trusted, so nothing has to be installed. Traefik obtains and renews these certificates itself (DNS challenge at your DNS provider), so they are not part of the renewal below. Problems show up in Traefik's log, not here; the Certificate check on each app shows what Traefik actually serves.</p>
 </section>
 
 <section class="card">

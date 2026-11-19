@@ -5,7 +5,8 @@
 # Plain Docker:         cp .env.example .env, edit it, then: docker compose up -d
 #
 # Every variable is listed with an example in .env.example; the README explains them.
-# Before the first deploy: create the folders and the proxy network (see "Quick start" in the README).
+# Before the first deploy: create the proxy network (see "Quick start" in the README). On first start the
+# manager creates its own CA; download its root certificate from the Status page.
 services:
   traefik:
     image: traefik:v3.7.16
@@ -33,7 +34,7 @@ services:
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.http.tls=true
       # Trust internal-CA-signed HTTPS backends
-      - --serversTransport.rootCAs=/pki/root_ca.crt
+      - --serversTransport.rootCAs=/pki/root/${ROOT_CA_FILE:-root_ca.crt}
       # Let's Encrypt for apps that choose it in the manager (router tls.certResolver: letsencrypt).
       # DNS-01 challenge, so the apps never have to be reachable from the internet. Harmless while no
       # app uses it; needs the DNS provider's credentials (below) once one does.
@@ -51,8 +52,9 @@ services:
       - ${TM_ROOT:-/opt/traefik}/logs:/var/log/traefik
       # Let's Encrypt account and certificates (acme.json, created by Traefik with mode 600)
       - ${TM_ROOT:-/opt/traefik}/acme:/etc/traefik/acme
-      # Only the root CERTIFICATE. Traefik never sees the intermediate key.
-      - ${PKI_DIR:-/opt/traefik/pki}/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+      # The root CERTIFICATE's folder (a folder, so it can be mounted before the manager creates the
+      # certificate on first start). Traefik never sees the intermediate key. Keep no root key here.
+      - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root:ro
     environment:
       TZ: ${TZ:-UTC}
       # DNS provider credentials for the Let's Encrypt challenge. Only Traefik gets them; the manager
@@ -105,6 +107,9 @@ services:
       CA_CERT_FILE: ${CA_CERT_FILE:-intermediate_ca.crt}
       CA_KEY_FILE: ${CA_KEY_FILE:-intermediate_ca_key}
       CA_KEY_PASSWORD: ${CA_KEY_PASSWORD:-}
+      ROOT_CA_FILE: ${ROOT_CA_FILE:-root_ca.crt}
+      # With no CA in PKI_DIR on first start, the manager creates one for ALLOWED_DOMAINS
+      CA_AUTO_CREATE: ${CA_AUTO_CREATE:-true}
       HOST_IP: ${HOST_IP:-}
       # Old name for HOST_IP, still honoured
       PI_IP: ${PI_IP:-}
@@ -127,9 +132,10 @@ services:
       - ${TM_ROOT:-/opt/traefik}/manager:/data
       # Read for usage stats, and truncated by the manager once it passes ACCESS_LOG_MAX_MB
       - ${TM_ROOT:-/opt/traefik}/logs:/var/log/traefik
-      # Intermediate cert + encrypted key, read-only. The root key is offline and not mounted.
-      - ${PKI_DIR:-/opt/traefik/pki}/intermediate:/pki/intermediate:ro
-      - ${PKI_DIR:-/opt/traefik/pki}/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+      # Intermediate cert + key, and the root certificate. Writable so the manager can create the CA on
+      # first start; it never overwrites a CA that is there. Keep no root key in these folders.
+      - ${PKI_DIR:-/opt/traefik/pki}/intermediate:/pki/intermediate
+      - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root
     networks: [proxy]
     depends_on: [traefik]
 

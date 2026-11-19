@@ -9,7 +9,7 @@
 # manager creates its own CA; download its root certificate from the Status page.
 services:
   traefik:
-    image: traefik:v3.7.16
+    image: traefik:v3.7.18
     container_name: traefik
     restart: unless-stopped
     ports:

@@ -8,9 +8,10 @@ import secrets
 import sys
 
 import requests
-from flask import (Flask, abort, flash, redirect, render_template, request, send_file,
+from flask import (Flask, Response, abort, flash, redirect, render_template, request, send_file,
                    session, url_for)
 
+import auth
 import checks
 import pki
 import store as st
@@ -72,7 +73,10 @@ def create_app(env=None, start_background=True):
     else:
         ca, ca_error = None, "Configuration errors prevent loading the CA"
     api = TraefikAPI(config.traefik_api_url)
-    manager = Manager(config, ca, ca_error, store, actions, api)
+    login = auth.Login(config.data_dir, config.basic_auth_users)
+    if config.reset_login and login.reset():
+        actions.write("RESET_LOGIN is set: removed the login set on the Settings page", "WARN")
+    manager = Manager(config, ca, ca_error, store, actions, api, login=login)
     renewer = Renewer(manager)
     stats = Stats(config.data_dir, config.access_log_path, config.stats_retention_days,
                   config.access_log_max_mb * 1024 * 1024)
@@ -84,6 +88,20 @@ def create_app(env=None, start_background=True):
     app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats}
     app.jinja_env.filters["days_left"] = days_left
     app.jinja_env.filters["expiry_class"] = expiry_class
+
+    # ---- login ---------------------------------------------------------------
+
+    # Checked here as well as by Traefik, because the break-glass port does not go through Traefik.
+    open_paths = {"/healthz", tc.ROOT_CA_DOWNLOAD}
+
+    @app.before_request
+    def require_login():
+        if request.path in open_paths or login.check(request.headers.get("Authorization")):
+            return None
+        resp = Response("Log in to use Traefik Manager. Forgot the password? See Settings in the README.\n",
+                        401, mimetype="text/plain")
+        resp.headers["WWW-Authenticate"] = f'Basic realm="{auth.REALM}", charset="UTF-8"'
+        return resp
 
     # ---- CSRF ----------------------------------------------------------------
 
@@ -126,6 +144,9 @@ def create_app(env=None, start_background=True):
             banners.append(("warn", "The intermediate CA expires within 60 days. Plan a replacement."))
         for w in config.warnings:
             banners.append(("warn", w))
+        if config.reset_login:
+            banners.append(("warn", "RESET_LOGIN is set, so any login set on Settings is removed at every start. "
+                                    "Remove the variable from the stack once you have set a new login."))
         return {"csrf_token": csrf_token, "banners": banners, "manager_fqdn": config.manager_fqdn,
                 "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled,
                 "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain}
@@ -383,6 +404,40 @@ def create_app(env=None, start_background=True):
         return render_template("manager_access.html", v=values, errors=errors, client_ip=request.headers.get("X-Real-Ip"),
                                list_options=list_options()), 400 if errors else 200
 
+    @app.get("/settings")
+    def settings():
+        return render_template("settings.html", login=login, errors={},
+                               username=(login.usernames() or [""])[0])
+
+    @app.post("/settings/login")
+    def settings_login():
+        try:
+            username, password = auth.validate(request.form)
+        except ValueError as exc:
+            return render_template("settings.html", login=login, errors=exc.args[0],
+                                   username=request.form.get("username", "")), 400
+        was_on = login.enabled
+        try:
+            result = manager.set_login([f"{username}:{auth.hash_password(password)}"],
+                                       "changed the login for" if was_on else "turned on the login for")
+        except ApplyError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings"))
+        flash(f"Login {'changed' if was_on else 'turned on'} for {username}. Your browser asks for it now."
+              + ("" if result is None or result.verified else f" Traefik: {result.state} ({result.detail})"),
+              "success")
+        return redirect(url_for("settings"))
+
+    @app.post("/settings/login/off")
+    def settings_login_off():
+        try:
+            manager.set_login([], "turned off the login for")
+        except ApplyError as exc:
+            flash(str(exc), "error")
+        else:
+            flash("Login turned off.", "success")
+        return redirect(url_for("settings"))
+
     @app.post("/ip-lists/<name>/delete")
     def ip_list_delete(name):
         if not manager.get_ip_list(name):
@@ -400,7 +455,7 @@ def create_app(env=None, start_background=True):
             version, api_error = manager.api.version(), None
         except requests.RequestException as exc:
             version, api_error = None, describe(exc)
-        return render_template("status.html", ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
+        return render_template("status.html", login=login, ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
                                version=version, api_error=api_error, renewer=renewer, config=config,
                                le_apps=manager.letsencrypt_apps(), sso_apps=manager.sign_in_apps(),
                                manual=manager.manual_files(), now=pki.iso(pki.utcnow()))

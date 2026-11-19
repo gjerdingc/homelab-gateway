@@ -120,7 +120,10 @@ services:
       RENEW_BEFORE_DAYS: ${RENEW_BEFORE_DAYS:-30}
       RENEW_CHECK_HOURS: ${RENEW_CHECK_HOURS:-12}
       KEY_TYPE: ${KEY_TYPE:-rsa-2048}
+      # GUI login: set it on the Settings page. These two are for setting it from the stack instead,
+      # and for a forgotten password (RESET_LOGIN=true, then remove it again).
       BASIC_AUTH_USERS: ${BASIC_AUTH_USERS:-}
+      RESET_LOGIN: ${RESET_LOGIN:-false}
       STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
       # Offer Let's Encrypt on the app form. Set ACME_DNS_PROVIDER and its credentials first.

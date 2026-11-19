@@ -86,6 +86,18 @@ def test_core_dashboard_disabled_and_basic_auth():
     assert "traefik-dashboard" not in data["http"]["routers"]
     assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "basic-auth@file"]
     assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == ["me:$apr1$x$y"]
+    assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["realm"] == "Traefik Manager"
+    public = data["http"]["routers"]["traefik-manager-root-ca"]
+    assert public["middlewares"] == ["lan-only@file"] and "/status/root_ca.crt" in public["rule"]
+
+
+def test_core_login_from_settings_overrides_nothing_when_unset():
+    stored = ["me:$2y$10$abc"]
+    data = yaml.safe_load(tc.render_core(core_config(), None, auth_users=stored))
+    assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == stored
+    data = yaml.safe_load(tc.render_core(core_config(), None, auth_users=[]))
+    assert "basic-auth" not in data["http"]["middlewares"]
+    assert "traefik-manager-root-ca" not in data["http"]["routers"]
     assert "stores" not in data["tls"]
 
 

@@ -4,3 +4,4 @@ cryptography
 requests
 gunicorn
 pytest
+bcrypt

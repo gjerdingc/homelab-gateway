@@ -65,6 +65,8 @@ class Config:
         self.key_type = env.get("KEY_TYPE", "rsa-2048").strip().lower()
         self.traefik_api_url = env.get("TRAEFIK_API_URL", "http://traefik:8080").strip().rstrip("/")
         self.basic_auth_users = _split(env.get("BASIC_AUTH_USERS"))
+        # Remove the login set on the Settings page at startup (forgotten password)
+        self.reset_login = _bool(env.get("RESET_LOGIN"), False)
         # The manager router's backend, as seen from Traefik on the proxy network.
         self.manager_backend = env.get("MANAGER_BACKEND", "http://traefik-manager:8000")
 

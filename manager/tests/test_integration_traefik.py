@@ -38,7 +38,8 @@ def backend(body):
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             payload = (f"{body} host={self.headers.get('Host')} "
-                       f"user={self.headers.get('X-Auth-Request-Email')}").encode()
+                       f"user={self.headers.get('X-Auth-Request-Email')} "
+                       f"auth={'yes' if self.headers.get('Authorization') else 'no'}").encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -418,3 +419,31 @@ def test_sign_in_against_real_traefik(tmp_path, pki_session):
     finally:
         stack.close()
         auth.shutdown()
+
+
+def test_login_against_real_traefik(stack):
+    """Traefik accepts the $2y$ hash from the Settings page, and the root certificate stays open."""
+    import base64
+
+    import auth
+    login = auth.Login(stack.env["TM_DATA_DIR"])
+    m = stack.manager
+    m.login = login
+    m.startup()
+    assert m.startup_error is None
+    host = stack.env["MANAGER_FQDN"]
+    assert stack.get(host)[0] == 200
+
+    result = m.set_login(["me:" + auth.hash_password("correct horse")], "turned on the login for")
+    assert result.verified, result.detail
+    good = {"Authorization": "Basic " + base64.b64encode(b"me:correct horse").decode()}
+    bad = {"Authorization": "Basic " + base64.b64encode(b"me:wrong").decode()}
+    stack.until(lambda: stack.get(host)[0] == 401)
+    assert stack.get(host, headers=bad)[0] == 401
+    status, body, _ = stack.get(host, headers=good)
+    # Traefik passes the login on, so the manager's own check (needed for port 8090) lets it in too.
+    assert status == 200 and "auth=yes" in body
+    assert stack.get(host, "/status/root_ca.crt")[0] == 200  # reaches the backend without the login
+
+    m.set_login([], "turned off the login for")
+    stack.until(lambda: stack.get(host)[0] == 200)

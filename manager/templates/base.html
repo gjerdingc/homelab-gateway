@@ -41,6 +41,7 @@
       <a href="{{ url_for('status') }}" {% if ep == 'status' %}class="active"{% endif %}>Status</a>
       <a href="{{ url_for('usage') }}" {% if ep == 'usage' %}class="active"{% endif %}>Usage</a>
       <a href="{{ url_for('log_page') }}" {% if ep == 'log_page' %}class="active"{% endif %}>Log</a>
+      <a href="{{ url_for('settings') }}" {% if ep == 'settings' %}class="active"{% endif %}>Settings</a>
       {% if dashboard_enabled and manager_fqdn %}<a href="https://{{ manager_fqdn }}/dashboard/">Dashboard</a>{% endif %}
       <div class="theme-menu">
         <button type="button" class="theme-toggle" id="theme-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="theme-options" aria-label="Choose theme" title="Choose theme">

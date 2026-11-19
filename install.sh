@@ -268,6 +268,7 @@ cat <<EOF
   3. Open https://${fqdn}
      (or http://${ip}:${port} until DNS works).
 
+  Recommended: turn on a login for the GUI under Settings.
   Add an app: put its container on the "${network}" network, then use "Add app" in the GUI.
   Settings: ${ENV_FILE}. After editing it: cd ${DIR} && docker compose up -d
   Update later: run this installer again.

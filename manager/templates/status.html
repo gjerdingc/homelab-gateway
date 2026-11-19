@@ -87,7 +87,7 @@
     <dt>Allowed domains</dt><dd class="mono">{{ config.allowed_domains | join(', ') }}</dd>
     <dt>LAN CIDRs</dt><dd class="mono">{{ config.lan_cidrs | join(', ') }}</dd>
     <dt>Key / validity</dt><dd><span class="mono">{{ config.key_type }}</span>, {{ config.cert_validity_days }} days</dd>
-    <dt>Basic auth</dt><dd>{{ 'On' if config.basic_auth_users else 'Off' }}</dd>
+    <dt>Login</dt><dd>{% if login.enabled %}On{% if login.from_env %} (BASIC_AUTH_USERS){% endif %}{% else %}Off{% endif %} · <a href="{{ url_for('settings') }}">Settings</a></dd>
   </dl>
   <div class="actions">
     <form method="post" action="{{ url_for('regenerate') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Regenerate all config</button></form>

@@ -149,10 +149,15 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
     return _dump(data, slug)
 
 
-def render_core(config, manager_cert, sources=None):
+ROOT_CA_DOWNLOAD = "/status/root_ca.crt"
+
+
+def render_core(config, manager_cert, sources=None, auth_users=None):
     """_core.yml: TLS defaults, shared middlewares and the manager/dashboard routers.
 
-    sources, when set, limits the manager and dashboard further, on top of lan-only."""
+    sources, when set, limits the manager and dashboard further, on top of lan-only.
+    auth_users: htpasswd entries for the GUI login; None means BASIC_AUTH_USERS."""
+    auth_users = list(config.basic_auth_users if auth_users is None else auth_users)
     middlewares = {
         "lan-only": {"ipAllowList": {"sourceRange": list(config.lan_cidrs)}},
         "secure-headers": {"headers": {
@@ -170,8 +175,10 @@ def render_core(config, manager_cert, sources=None):
     if sources:
         middlewares["manager-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
         guards.append("manager-sources")
-    if config.basic_auth_users:
-        middlewares["basic-auth"] = {"basicAuth": {"users": list(config.basic_auth_users)}}
+    open_guards = [f"{g}@file" for g in guards]
+    if auth_users:
+        # Same realm as the manager's own check, so the browser uses one login for both.
+        middlewares["basic-auth"] = {"basicAuth": {"users": auth_users, "realm": "Traefik Manager"}}
         guards.append("basic-auth")
     guards = [f"{g}@file" for g in guards]
 
@@ -194,6 +201,17 @@ def render_core(config, manager_cert, sources=None):
         "middlewares": list(guards),
         "tls": {},
     }
+    if auth_users:
+        # The root certificate is public, so anyone allowed to reach the manager can fetch it to set
+        # up a device, without the login.
+        routers["traefik-manager-root-ca"] = {
+            "rule": f"{host} && Path(`{ROOT_CA_DOWNLOAD}`)",
+            "entryPoints": ["websecure"],
+            "service": "traefik-manager",
+            "priority": 20,
+            "middlewares": open_guards,
+            "tls": {},
+        }
 
     data = {
         "http": {

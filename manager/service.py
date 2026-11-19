@@ -50,9 +50,10 @@ def _names(app):
 
 
 class Manager:
-    def __init__(self, config, ca, ca_error, store, actions, api):
+    def __init__(self, config, ca, ca_error, store, actions, api, login=None):
         self.config, self.ca, self.ca_error = config, ca, ca_error
         self.store, self.actions, self.api = store, actions, api
+        self.login = login  # auth.Login; None means BASIC_AUTH_USERS only
         self.lock = store.lock
         self.startup_error = None
 
@@ -131,7 +132,8 @@ class Manager:
 
     def render_for(self, app, lists=None):
         if app.get("reserved"):
-            return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)))
+            return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)),
+                                  self.login.users() if self.login else None)
         return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver)
 
     def routable(self, app):
@@ -521,6 +523,26 @@ class Manager:
             app = {**copy.deepcopy(prev), **fields}
             self._check_lockout({**data, "apps": [app if a.get("reserved") else a for a in data["apps"]]}, guard)
             return self._apply(app, prev, False, "updated access for")
+
+    def set_login(self, users, action):
+        """Store the GUI login (users: htpasswd entries, [] to remove it) and rewrite the manager's
+        route so Traefik asks for it too. If Traefik refuses the new route, the old login is put back."""
+        if self.login is None:
+            raise ApplyError("Login settings are not available")
+        if self.login.from_env:
+            raise ApplyError("The login is set with BASIC_AUTH_USERS in the stack; change it there")
+        with self.lock:
+            previous = self.login.save(users)
+            try:
+                mgr = self.get(MANAGER_SLUG)
+                if mgr and self.ready:
+                    return self._apply(copy.deepcopy(mgr), mgr, False, action)
+            except BaseException:
+                self.login.restore(previous)
+                raise
+            # No manager route yet (the CA is not loaded): the manager's own check still applies.
+            self.actions.write(f"{action} {MANAGER_SLUG}")
+            return None
 
     def delete_ip_list(self, name):
         with self.lock:

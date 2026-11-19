@@ -96,7 +96,7 @@ The variables you must set:
 | `ALLOWED_DOMAINS` | `lab.example.com` | Names outside this are refused. The internal CA is limited to these |
 | `LAN_CIDRS` | `192.168.1.0/24` | For the `lan-only` middleware |
 
-Recommended: `HOST_IP` (`192.168.1.10`, used by the DNS check), `TZ` (e.g. `Europe/Oslo`, default `UTC`) and `BASIC_AUTH_USERS` (a login for the GUI, see [Security notes](#security-notes)).
+Recommended: `HOST_IP` (`192.168.1.10`, used by the DNS check) and `TZ` (e.g. `Europe/Oslo`, default `UTC`). A login for the GUI is set in the GUI itself, under [Settings](#login).
 [`.env.example`](.env.example) lists every variable with an example; the full list is under [Configuration](#configuration).
 
 On first start the manager creates its own certificate authority for `ALLOWED_DOMAINS` (see [Certificates](#certificates)). There is nothing to prepare.
@@ -132,7 +132,8 @@ Installing the root certificate works for your own devices. For apps that guests
 | `TM_VERSION` | `latest` | Manager image tag. Pin a release, e.g. `1.0.0`, to choose when you upgrade |
 | `TM_IMAGE` | `ghcr.io/gjerdingc/traefik-manager` | For a fork with its own image |
 | `TM_PULL_POLICY` | `always` | `missing` to skip the image check on every deploy |
-| `BASIC_AUTH_USERS` | – | htpasswd entries for the GUI, e.g. from `htpasswd -nB me`. In a `.env` file write each `$` as `$$` |
+| `BASIC_AUTH_USERS` | – | Optional. Sets the GUI login from the stack instead of on the Settings page, and overrides it there: htpasswd entries, e.g. from `htpasswd -nB me`. In a `.env` file write each `$` as `$$` |
+| `RESET_LOGIN` | `false` | `true` removes the login set on the Settings page at startup (forgotten password). Remove it again afterwards |
 | `DASHBOARD_ENABLED` | `true` | Route `/dashboard/` to the Traefik dashboard |
 | `KEY_TYPE` | `rsa-2048` | `rsa-2048` or `ec-p256` for issued certs |
 | `CERT_VALIDITY_DAYS` / `RENEW_BEFORE_DAYS` / `RENEW_CHECK_HOURS` | `365` / `30` / `12` | See [Renewal](#renewal) |
@@ -170,6 +171,17 @@ With plain Docker: `docker compose -f docker-compose.yml -f docker-compose.build
 | `/opt/traefik/pki/root` | Root **certificate** only, mounted into the manager and (read-only) Traefik. Keep no root key here. |
 
 `/opt/traefik` is `TM_ROOT` and `/opt/traefik/pki` is `PKI_DIR`. Backing up both folders is a full backup.
+
+## Login
+
+By default anyone who can reach the manager (the LAN, narrowed by **Manager access**) can use it. To require a login, open **Settings**, enter a username and password and choose **Turn on login**. Your browser then asks for it.
+
+- It covers the GUI, the Traefik dashboard and the break-glass port 8090: Traefik checks it on the manager's route, and the manager checks it itself on every request, which is what protects the port that bypasses Traefik.
+- Only a bcrypt hash is stored, in `/opt/traefik/manager/auth.yml`.
+- The root certificate (`/status/root_ca.crt`) and the health check stay open, so anyone allowed to reach the manager can still set up a device.
+- **Change** the username or password on the same page, or **Turn off login** there.
+- **Forgot the password?** Set `RESET_LOGIN=true` in the stack and redeploy: the manager starts without a login. Set a new one, then remove the variable.
+- `BASIC_AUTH_USERS` in the stack takes precedence; the Settings page then only shows it.
 
 ## Adding an app
 
@@ -360,7 +372,7 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 - Sign-in needs internet access to Google. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.
 - The cookie is valid for every app under `SSO_DOMAIN`, so each of them receives it.
 - Turning `SSO_ENABLED` off while apps still require sign-in does not open them: their routers point at a middleware that no longer exists, so Traefik rejects them (404) until sign-in is removed from the app or turned back on. Scripts and monitors that call an app need a route without sign-in.
-- The manager's own GUI is not behind sign-in; it keeps the LAN allow-list and optional basic auth.
+- The manager's own GUI is not behind Google sign-in; it keeps the LAN allow-list and its own optional [login](#login).
 
 ## Renewal
 
@@ -403,8 +415,8 @@ Traefik's access log goes to that file instead of the container output, so it do
 ## Security notes
 
 - The intermediate CA key is readable by the manager container. Anyone who compromises the manager can issue certs that your devices trust, for any name the intermediate is allowed to sign. The CA the manager creates is limited to `ALLOWED_DOMAINS` and has no root key to make more; for your own CA, add a name constraint and keep the root key offline.
-- The GUI is protected by LAN allow-listing only, unless you set `BASIC_AUTH_USERS`. **Set it** on any network you share with people or devices you don't fully trust.
-- The fallback port 8090 bypasses Traefik and its allow-list. Keep it on the LAN, or bind it to one address with `BREAK_GLASS_PORT`.
+- The GUI is protected by LAN allow-listing only, until you turn on the [login](#login). **Turn it on** on any network you share with people or devices you don't fully trust. Until it is on, anyone who can reach the manager can also be the one to set it.
+- The fallback port 8090 bypasses Traefik and its allow-list (the login still applies). Keep it on the LAN, or bind it to one address with `BREAK_GLASS_PORT`.
 - Issued private keys are unencrypted on disk, as Traefik requires. The GUI never offers them for download.
 - The Traefik API is unauthenticated, but its port is not published to the host.
 

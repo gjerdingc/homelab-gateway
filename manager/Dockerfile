@@ -1,7 +1,7 @@
 # Alpine packages are prebuilt for arm64 and armv7, so this builds quickly on a Pi.
 FROM alpine:3.22
 
-RUN apk add --no-cache python3 py3-flask py3-yaml py3-cryptography py3-requests py3-gunicorn tzdata
+RUN apk add --no-cache python3 py3-flask py3-yaml py3-cryptography py3-requests py3-gunicorn py3-bcrypt tzdata
 
 WORKDIR /app
 COPY *.py ./

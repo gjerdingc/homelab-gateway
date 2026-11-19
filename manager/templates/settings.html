@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Settings - Traefik Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p class="muted">Settings that are kept by the manager. Everything else is set in the stack's environment variables.</p>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Login</h2>
+  <dl class="kv">
+    <dt>Status</dt><dd>{% if login.enabled %}<span class="badge badge-ok">on</span>Required for <span class="mono">{{ login.usernames() | join(', ') }}</span>{% if login.from_env %}, set with <span class="mono">BASIC_AUTH_USERS</span>{% endif %}{% else %}<span class="badge badge-muted">off</span>Anyone who can reach the manager can use it{% endif %}</dd>
+  </dl>
+  <p class="help">The login protects this GUI, the Traefik dashboard and the break-glass port. Your browser asks for it once per session. Without it, the manager is only limited to <span class="mono">LAN_CIDRS</span> (and the allowed sources under <a href="{{ url_for('manager_access') }}">Manager access</a>). The root certificate can still be downloaded without logging in, so anyone can set up a device.</p>
+
+  {% if login.from_env %}
+  <p class="help">To change it, edit <span class="mono">BASIC_AUTH_USERS</span> in the stack and redeploy. Remove the variable to manage the login here instead.</p>
+  {% else %}
+  <form method="post" action="{{ url_for('settings_login') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field{% if errors.get('username') %} has-error{% endif %}">
+      <label for="username">Username</label>
+      <input id="username" name="username" value="{{ username }}" autocapitalize="none" spellcheck="false" autocomplete="username">
+      {% if errors.get('username') %}<p class="error">{{ errors['username'] }}</p>{% endif %}
+    </div>
+    <div class="field{% if errors.get('password') %} has-error{% endif %}">
+      <label for="password">{% if login.enabled %}New password{% else %}Password{% endif %}</label>
+      <input id="password" name="password" type="password" autocomplete="new-password">
+      {% if errors.get('password') %}<p class="error">{{ errors['password'] }}</p>{% else %}<p class="help">At least 8 characters. Only a bcrypt hash is stored.</p>{% endif %}
+    </div>
+    <div class="field{% if errors.get('password_confirm') %} has-error{% endif %}">
+      <label for="password_confirm">Repeat the password</label>
+      <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password">
+      {% if errors.get('password_confirm') %}<p class="error">{{ errors['password_confirm'] }}</p>{% endif %}
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">{% if login.enabled %}Change login{% else %}Turn on login{% endif %}</button>
+    </div>
+    <p class="help">After saving, your browser asks for the new login. Forgot it? Set <span class="mono">RESET_LOGIN=true</span> in the stack and redeploy: the manager starts without a login. Then remove the variable again.</p>
+  </form>
+  {% if login.enabled %}
+  <details class="danger-zone">
+    <summary>Turn off login</summary>
+    <form method="post" action="{{ url_for('settings_login_off') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <p class="help">Anyone on the LAN who can reach the manager can then change apps and issue certificates.</p>
+      <div class="actions"><button class="btn btn-danger" type="submit">Turn off login</button></div>
+    </form>
+  </details>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

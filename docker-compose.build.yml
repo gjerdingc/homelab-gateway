@@ -1,0 +1,10 @@
+# Build the manager from source instead of pulling the prebuilt image.
+#   Plain Docker:  docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#   Portainer:     add docker-compose.build.yml under "Additional paths" on the stack
+# Useful for testing changes on a branch, or for a fork that has no image of its own.
+services:
+  traefik-manager:
+    build: ./manager
+    image: traefik-manager:local
+    # Rebuild on every deploy, so "Pull and redeploy" picks up changes from Git
+    pull_policy: build

@@ -84,7 +84,7 @@
   </dl>
   {% elif not a.enabled %}<p class="muted">The app is disabled, so Traefik serves no certificate for it.</p>
   {% else %}<p class="muted">Could not read the certificate Traefik serves.</p>{% endif %}
-  <p class="help">Traefik requests this certificate from Let's Encrypt with a DNS challenge in Cloudflare, keeps it in <span class="mono">acme.json</span> and renews it about 30 days before it expires. Changing the names gets a new one.</p>
+  <p class="help">Traefik requests this certificate from Let's Encrypt with a DNS challenge at your DNS provider, keeps it in <span class="mono">acme.json</span> and renews it about 30 days before it expires. Changing the names gets a new one.</p>
   {% else %}
   {% if cert %}
   <dl class="kv">

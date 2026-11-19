@@ -181,3 +181,11 @@ def test_sso_config_is_validated():
     assert any("SSO_AUTH_URL" in e for e in bad.errors)
     # Off by default, and SSO_DOMAIN alone does not turn it on.
     assert core_config(SSO_DOMAIN="oplassen.net").ok and not core_config().sso_enabled
+
+
+def test_host_ip_falls_back_to_the_old_pi_ip_name():
+    assert core_config(HOST_IP="10.0.0.5").host_ip == "10.0.0.5"
+    assert core_config(PI_IP="10.0.0.6").host_ip == "10.0.0.6"
+    assert core_config(HOST_IP="10.0.0.5", PI_IP="10.0.0.6").host_ip == "10.0.0.5"
+    assert any(e.startswith("HOST_IP ") for e in core_config(HOST_IP="nope").errors)
+    assert any(e.startswith("PI_IP ") for e in core_config(PI_IP="nope").errors)

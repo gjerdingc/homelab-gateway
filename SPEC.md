@@ -1,5 +1,11 @@
 # Spec: Traefik Manager (internal reverse proxy + certificate automation)
 
+> **Note:** this is the original design, written for one lab (values in §2.1). It is kept for the
+> reasoning and the acceptance criteria. Paths, defaults and the compose file have since been made
+> portable: `TM_ROOT`, `PKI_DIR`, `TZ`, `HOST_IP` (formerly `PI_IP`), a prebuilt image instead of
+> `build:`, and a choice of DNS provider for Let's Encrypt. The [README](README.md) is current;
+> [docs/lab.md](docs/lab.md) holds the lab's own values.
+
 Status: v3 (all lab values filled in), ready to hand to an implementer
 Target repo: `gjerdingc/traefik-lab-lb` (currently empty)
 Target host: Raspberry Pi (arm64), Docker, deployed as a **Portainer Git stack**

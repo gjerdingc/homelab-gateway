@@ -239,7 +239,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         cert_source = "internal"
     elif cert_source == "letsencrypt" and not letsencrypt_enabled:
         errors["cert_source"] = ("Let's Encrypt is not set up. Set LETSENCRYPT_ENABLED=true and the "
-                                 "Cloudflare token in the stack (see the README), or choose the internal CA.")
+                                 "DNS provider credentials in the stack (see the README), or choose the internal CA.")
 
     require_sign_in = bool(form.get("require_sign_in"))
     if require_sign_in:

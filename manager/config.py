@@ -54,7 +54,9 @@ class Config:
         self.ca_cert_file = env.get("CA_CERT_FILE", "").strip()
         self.ca_key_file = env.get("CA_KEY_FILE", "").strip()
         self.ca_key_password = env.get("CA_KEY_PASSWORD") or None
-        self.pi_ip = env.get("PI_IP", "").strip()
+        # The address app names should resolve to (DNS check only). PI_IP is the old name.
+        self.host_ip_var = "HOST_IP" if env.get("HOST_IP", "").strip() else "PI_IP"
+        self.host_ip = env.get(self.host_ip_var, "").strip()
         self.key_type = env.get("KEY_TYPE", "rsa-2048").strip().lower()
         self.traefik_api_url = env.get("TRAEFIK_API_URL", "http://traefik:8080").strip().rstrip("/")
         self.basic_auth_users = _split(env.get("BASIC_AUTH_USERS"))
@@ -87,12 +89,12 @@ class Config:
     def _validate(self):
         e = self.errors
         if not self.allowed_domains:
-            e.append("ALLOWED_DOMAINS is required (comma-separated, e.g. gjecorp.net)")
+            e.append("ALLOWED_DOMAINS is required (comma-separated, e.g. example.com)")
         for d in self.allowed_domains:
             if not HOSTNAME_RE.match(d):
                 e.append(f"ALLOWED_DOMAINS: {d!r} is not a valid domain")
         if not self.manager_fqdn:
-            e.append("MANAGER_FQDN is required (e.g. traefik.gjecorp.net)")
+            e.append("MANAGER_FQDN is required (e.g. traefik.example.com)")
         elif not HOSTNAME_RE.match(self.manager_fqdn):
             e.append(f"MANAGER_FQDN {self.manager_fqdn!r} is not a valid hostname")
         elif self.allowed_domains and not in_domains(self.manager_fqdn, self.allowed_domains):
@@ -111,11 +113,11 @@ class Config:
                 e.append(f"{name} must be a plain filename inside the intermediate folder, got {value!r}")
         if self.key_type not in ("rsa-2048", "ec-p256"):
             e.append(f"KEY_TYPE must be rsa-2048 or ec-p256, got {self.key_type!r}")
-        if self.pi_ip:
+        if self.host_ip:
             try:
-                ipaddress.ip_address(self.pi_ip)
+                ipaddress.ip_address(self.host_ip)
             except ValueError:
-                e.append(f"PI_IP {self.pi_ip!r} is not a valid IP address")
+                e.append(f"{self.host_ip_var} {self.host_ip!r} is not a valid IP address")
         parsed = urlparse(self.traefik_api_url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             e.append(f"TRAEFIK_API_URL {self.traefik_api_url!r} is not a valid URL")
@@ -127,7 +129,7 @@ class Config:
             e.append(f"LETSENCRYPT_RESOLVER {self.letsencrypt_resolver!r} must be letters, digits, - or _")
         if self.sso_enabled:
             if not self.sso_domain:
-                e.append("SSO_DOMAIN is required when SSO_ENABLED is on (the oauth2-proxy cookie domain, e.g. oplassen.net)")
+                e.append("SSO_DOMAIN is required when SSO_ENABLED is on (the oauth2-proxy cookie domain, e.g. example.com)")
             elif not HOSTNAME_RE.match(self.sso_domain):
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is not a valid domain")
             elif self.allowed_domains and not in_domains(self.sso_domain, self.allowed_domains):

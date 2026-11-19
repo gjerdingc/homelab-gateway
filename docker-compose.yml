@@ -1,6 +1,11 @@
-# Portainer stack: Repository gjerdingc/traefik-lab-lb, compose path docker-compose.yml
-# Environment variables are set under the stack's Environment variables in Portainer
-# (see README.md for the full list and example values).
+# Traefik + Traefik Manager.
+#
+# Portainer / Dockhand: add a stack from this repository (compose path docker-compose.yml) and set the
+# variables below in the stack's environment variables.
+# Plain Docker:         cp .env.example .env, edit it, then: docker compose up -d
+#
+# Every variable is listed with an example in .env.example; the README explains them.
+# Before the first deploy: create the folders and the proxy network (see "Quick start" in the README).
 services:
   traefik:
     image: traefik:v3.7.16
@@ -30,28 +35,48 @@ services:
       # Trust internal-CA-signed HTTPS backends
       - --serversTransport.rootCAs=/pki/root_ca.crt
       # Let's Encrypt for apps that choose it in the manager (router tls.certResolver: letsencrypt).
-      # DNS-01 through Cloudflare, so the apps never have to be reachable from the internet.
-      # Harmless while no app uses it; needs CF_DNS_API_TOKEN once one does.
+      # DNS-01 challenge, so the apps never have to be reachable from the internet. Harmless while no
+      # app uses it; needs the DNS provider's credentials (below) once one does.
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-}
       - --certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme/acme.json
       - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
-      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+      # Provider code from https://doc.traefik.io/traefik/https/acme/#providers
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=${ACME_DNS_PROVIDER:-cloudflare}
       # Check the TXT record on public resolvers, not on the LAN DNS (which may answer
-      # gjecorp.net itself and never see the challenge record).
-      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+      # for the domain itself and never see the challenge record).
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=${ACME_DNS_RESOLVERS:-1.1.1.1:53,1.0.0.1:53}
     volumes:
-      - /opt/traefik/dynamic:/etc/traefik/dynamic:ro
-      - /opt/traefik/certs:/etc/traefik/certs:ro
-      - /opt/traefik/logs:/var/log/traefik
+      - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic:ro
+      - ${TM_ROOT:-/opt/traefik}/certs:/etc/traefik/certs:ro
+      - ${TM_ROOT:-/opt/traefik}/logs:/var/log/traefik
       # Let's Encrypt account and certificates (acme.json, created by Traefik with mode 600)
-      - /opt/traefik/acme:/etc/traefik/acme
+      - ${TM_ROOT:-/opt/traefik}/acme:/etc/traefik/acme
       # Only the root CERTIFICATE. Traefik never sees the intermediate key.
-      - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+      - ${PKI_DIR:-/opt/traefik/pki}/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
     environment:
-      TZ: Europe/Oslo
-      # Cloudflare API token with Zone:DNS:Edit (and Zone:Zone:Read) on gjecorp.net.
-      # Only Traefik gets it; the manager never sees it.
+      TZ: ${TZ:-UTC}
+      # DNS provider credentials for the Let's Encrypt challenge. Only Traefik gets them; the manager
+      # never sees them. Fill in the ones for ACME_DNS_PROVIDER and leave the rest empty.
+      # Another provider: add its variables here (names are on the provider's page in the Traefik docs).
+      # cloudflare: API token with Zone:DNS:Edit and Zone:Zone:Read on the zone
       CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:-}
+      # route53 (AWS)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_HOSTED_ZONE_ID: ${AWS_HOSTED_ZONE_ID:-}
+      # digitalocean
+      DO_AUTH_TOKEN: ${DO_AUTH_TOKEN:-}
+      # hetzner
+      HETZNER_API_TOKEN: ${HETZNER_API_TOKEN:-}
+      # ovh
+      OVH_ENDPOINT: ${OVH_ENDPOINT:-}
+      OVH_APPLICATION_KEY: ${OVH_APPLICATION_KEY:-}
+      OVH_APPLICATION_SECRET: ${OVH_APPLICATION_SECRET:-}
+      OVH_CONSUMER_KEY: ${OVH_CONSUMER_KEY:-}
+      # porkbun
+      PORKBUN_API_KEY: ${PORKBUN_API_KEY:-}
+      PORKBUN_SECRET_API_KEY: ${PORKBUN_SECRET_API_KEY:-}
     networks: [proxy]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -60,25 +85,28 @@ services:
       retries: 3
 
   traefik-manager:
-    build: ./manager
-    image: traefik-manager:latest
-    # Rebuild on every deploy, so "Pull and redeploy" picks up changes from GitHub
-    pull_policy: build
+    # Prebuilt for amd64, arm64 and armv7 by .github/workflows/image.yml.
+    # Pin TM_VERSION to a release (e.g. 1.0.0) to choose when you upgrade; "latest" follows main.
+    # To build from source instead, add docker-compose.build.yml (see the README).
+    image: ${TM_IMAGE:-ghcr.io/gjerdingc/traefik-manager}:${TM_VERSION:-latest}
     container_name: traefik-manager
     restart: unless-stopped
     ports:
-      # Break-glass access that does not go through Traefik: http://<pi-ip>:8090
-      # Not protected by the LAN-only middleware, so keep it on the LAN.
-      - "8090:8000"
+      # Break-glass access that does not go through Traefik: http://<host-ip>:8090
+      # Not protected by the LAN-only middleware. Set BREAK_GLASS_PORT=<lan-ip>:8090 to listen
+      # on one address only.
+      - "${BREAK_GLASS_PORT:-8090}:8000"
     environment:
-      TZ: Europe/Oslo
+      TZ: ${TZ:-UTC}
       MANAGER_FQDN: ${MANAGER_FQDN}
       DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
       ALLOWED_DOMAINS: ${ALLOWED_DOMAINS}
       LAN_CIDRS: ${LAN_CIDRS}
       CA_CERT_FILE: ${CA_CERT_FILE:-intermediate_ca.crt}
       CA_KEY_FILE: ${CA_KEY_FILE:-intermediate_ca_key}
-      CA_KEY_PASSWORD: ${CA_KEY_PASSWORD}
+      CA_KEY_PASSWORD: ${CA_KEY_PASSWORD:-}
+      HOST_IP: ${HOST_IP:-}
+      # Old name for HOST_IP, still honoured
       PI_IP: ${PI_IP:-}
       CERT_VALIDITY_DAYS: ${CERT_VALIDITY_DAYS:-365}
       RENEW_BEFORE_DAYS: ${RENEW_BEFORE_DAYS:-30}
@@ -87,21 +115,21 @@ services:
       BASIC_AUTH_USERS: ${BASIC_AUTH_USERS:-}
       STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
-      # Offer Let's Encrypt on the app form. Set CF_DNS_API_TOKEN first.
+      # Offer Let's Encrypt on the app form. Set ACME_DNS_PROVIDER and its credentials first.
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
       # Offer "Require Google sign-in" on the app form. Deploy oauth2-proxy/docker-compose.yml first.
       SSO_ENABLED: ${SSO_ENABLED:-false}
       SSO_DOMAIN: ${SSO_DOMAIN:-}
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
     volumes:
-      - /opt/traefik/dynamic:/etc/traefik/dynamic
-      - /opt/traefik/certs:/etc/traefik/certs
-      - /opt/traefik/manager:/data
+      - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic
+      - ${TM_ROOT:-/opt/traefik}/certs:/etc/traefik/certs
+      - ${TM_ROOT:-/opt/traefik}/manager:/data
       # Read for usage stats, and truncated by the manager once it passes ACCESS_LOG_MAX_MB
-      - /opt/traefik/logs:/var/log/traefik
+      - ${TM_ROOT:-/opt/traefik}/logs:/var/log/traefik
       # Intermediate cert + encrypted key, read-only. The root key is offline and not mounted.
-      - /home/christian/pki/intermediate:/pki/intermediate:ro
-      - /home/christian/pki/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
+      - ${PKI_DIR:-/opt/traefik/pki}/intermediate:/pki/intermediate:ro
+      - ${PKI_DIR:-/opt/traefik/pki}/root/${ROOT_CA_FILE:-root_ca.crt}:/pki/root_ca.crt:ro
     networks: [proxy]
     depends_on: [traefik]
 

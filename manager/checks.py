@@ -18,17 +18,17 @@ def _r(status, detail):
     return {"status": status, "detail": detail}
 
 
-def dns_check(fqdn, pi_ip=""):
+def dns_check(fqdn, host_ip=""):
     try:
         infos = socket.getaddrinfo(fqdn, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except socket.gaierror as exc:
         return _r("fail", f"{fqdn} does not resolve ({exc.strerror or exc})")
     addrs = sorted({i[4][0] for i in infos})
-    if not pi_ip:
+    if not host_ip:
         return _r("ok", f"Resolves to {', '.join(addrs)}")
-    if pi_ip in addrs:
+    if host_ip in addrs:
         return _r("ok", f"Resolves to {', '.join(addrs)}")
-    return _r("warn", f"Resolves to {', '.join(addrs)}, expected {pi_ip}")
+    return _r("warn", f"Resolves to {', '.join(addrs)}, expected {host_ip}")
 
 
 def backend_check(backend_url, timeout=2):
@@ -149,7 +149,7 @@ def e2e_check(config, app, timeout=5):
 def run_checks(config, api, app, timeout=4):
     """DNS, backend and Traefik checks in parallel, so a slow resolver can't hang the page."""
     jobs = {
-        "dns": lambda: dns_check(app["fqdn"], config.pi_ip),
+        "dns": lambda: dns_check(app["fqdn"], config.host_ip),
         "backend": lambda: backend_check(app["backend_url"]),
         "traefik": lambda: traefik_check(api, "traefik-manager" if app.get("reserved") else app["slug"]),
     }

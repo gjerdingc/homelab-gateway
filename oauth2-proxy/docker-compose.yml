@@ -1,15 +1,17 @@
 # Portainer stack: oauth2-proxy (Google sign-in for apps behind Traefik)
-# Repository gjerdingc/traefik-lab-lb, compose path oauth2-proxy/docker-compose.yml
-# (or paste this into the Portainer web editor).
+# Add a stack from this repository with compose path oauth2-proxy/docker-compose.yml
+# (or paste this into the Portainer web editor, or use docker compose with a .env next to it).
 #
 # Stack environment variables (set in Portainer, never committed):
 #   OAUTH_CLIENT_ID      Google OAuth client ID (Web application)
 #   OAUTH_CLIENT_SECRET  Google OAuth client secret
 #   OAUTH_COOKIE_SECRET  32 random bytes:  openssl rand -base64 32 | tr -- '+/' '-_'
-#   SSO_DOMAIN           optional, default oplassen.net
+#   SSO_DOMAIN           required: the domain the sign-in cookie covers, e.g. example.com
+#   TZ                   optional, default UTC
+#   OAUTH2_PROXY_ROOT    optional, host folder holding emails.txt, default /opt/oauth2-proxy
 #
 # Before deploying, create the allow-list on the host, one email address per line:
-#   /opt/oauth2-proxy/emails.txt
+#   /opt/oauth2-proxy/emails.txt  (or $OAUTH2_PROXY_ROOT/emails.txt)
 # If the file is missing, Docker creates a directory in its place and oauth2-proxy fails to start.
 #
 # Traefik reaches the container as http://oauth2-proxy:4180 on the proxy network.
@@ -22,16 +24,16 @@ services:
     container_name: oauth2-proxy
     restart: unless-stopped
     environment:
-      TZ: Europe/Oslo
+      TZ: ${TZ:-UTC}
       OAUTH2_PROXY_PROVIDER: google
       OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET}
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
-      OAUTH2_PROXY_REDIRECT_URL: https://auth.${SSO_DOMAIN:-oplassen.net}/oauth2/callback
+      OAUTH2_PROXY_REDIRECT_URL: https://auth.${SSO_DOMAIN:?SSO_DOMAIN is required, e.g. example.com}/oauth2/callback
       # One sign-in for every app under the domain
-      OAUTH2_PROXY_COOKIE_DOMAINS: .${SSO_DOMAIN:-oplassen.net}
-      OAUTH2_PROXY_WHITELIST_DOMAINS: .${SSO_DOMAIN:-oplassen.net}
+      OAUTH2_PROXY_COOKIE_DOMAINS: .${SSO_DOMAIN:?SSO_DOMAIN is required, e.g. example.com}
+      OAUTH2_PROXY_WHITELIST_DOMAINS: .${SSO_DOMAIN:?SSO_DOMAIN is required, e.g. example.com}
       OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_COOKIE_SAMESITE: lax
       OAUTH2_PROXY_COOKIE_EXPIRE: 168h
@@ -45,7 +47,7 @@ services:
       # Only the addresses in this file may sign in
       OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
     volumes:
-      - /opt/oauth2-proxy/emails.txt:/etc/oauth2-proxy/emails.txt:ro
+      - ${OAUTH2_PROXY_ROOT:-/opt/oauth2-proxy}/emails.txt:/etc/oauth2-proxy/emails.txt:ro
     networks: [proxy]
 
 networks:

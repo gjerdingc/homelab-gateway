@@ -26,24 +26,24 @@
 
   <rect width="1240" height="800" fill="#f5f6f8"/>
   <rect width="1240" height="4" fill="url(#accent)"/>
-  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Internal Tools Platform</text>
-  <text x="40" y="78" font-size="15" fill="#5f6b7c">One secure front door for every internal web app. All apps run as containers on one host, managed by Portainer.</text>
+  <text x="40" y="50" font-size="26" font-weight="700" fill="#1c2330">Homelab Gateway</text>
+  <text x="40" y="78" font-size="15" fill="#5f6b7c">One secure front door for every self-hosted web app. Everything runs as containers on one Docker host.</text>
 
   <!-- Outside the host -->
   <rect x="40" y="186" width="200" height="110" rx="12" class="box"/>
   <text x="60" y="216" class="title">Users</text>
-  <text x="60" y="240" class="text">Any browser on the</text>
-  <text x="60" y="258" class="text">internal network</text>
+  <text x="60" y="240" class="text">Any browser on</text>
+  <text x="60" y="258" class="text">your network</text>
   <text x="60" y="280" class="text">app.your-domain</text>
 
   <rect x="40" y="398" width="200" height="80" rx="12" class="box"/>
-  <text x="60" y="428" class="title">Internal CA</text>
-  <text x="60" y="450" class="text">Company certificate</text>
-  <text x="60" y="467" class="text">authority</text>
+  <text x="60" y="428" class="title">Certificates</text>
+  <text x="60" y="450" class="text">Own CA (first start)</text>
+  <text x="60" y="467" class="text">or Let's Encrypt</text>
 
   <rect x="40" y="498" width="200" height="80" rx="12" class="box"/>
-  <text x="60" y="528" class="title">Admin</text>
-  <text x="60" y="550" class="text">Adds an app: name +</text>
+  <text x="60" y="528" class="title">You</text>
+  <text x="60" y="550" class="text">Add an app: name +</text>
   <text x="60" y="567" class="text">backend, one form</text>
 
   <!-- The host -->
@@ -57,20 +57,19 @@
   <text x="330" y="206" class="text">Traefik reverse proxy + dashboard</text>
   <text x="330" y="240" class="text">•  HTTPS for every app</text>
   <text x="330" y="264" class="text">•  One name per app</text>
-  <text x="330" y="288" class="text">•  Network allow-list</text>
-  <text x="330" y="312" class="text">•  Security headers by default</text>
+  <text x="330" y="288" class="text">•  LAN and IP allow-lists</text>
+  <text x="330" y="312" class="text">•  Optional Google sign-in per app</text>
 
   <path d="M240 240 L304 240" class="traffic"/>
   <text x="250" y="230" class="label">HTTPS</text>
 
   <!-- App network -->
-  <rect x="650" y="140" width="530" height="266" rx="14" class="zone"/>
-  <text x="672" y="162" class="zonetitle">PRIVATE APP NETWORK · NO EXPOSED PORTS</text>
-  <rect x="672" y="174" width="486" height="36" rx="8" class="box"/><text x="690" y="197" class="app">prefix</text><rect x="1074" y="183" width="74" height="18" rx="9" class="tag"/><text x="1111" y="195.5" text-anchor="middle" class="tagtext">container</text>
-  <rect x="672" y="218" width="486" height="36" rx="8" class="box"/><text x="690" y="241" class="app">palo-security-audit</text><rect x="1074" y="227" width="74" height="18" rx="9" class="tag"/><text x="1111" y="239.5" text-anchor="middle" class="tagtext">container</text>
-  <rect x="672" y="262" width="486" height="36" rx="8" class="box"/><text x="690" y="285" class="app">edl-self-service</text><rect x="1074" y="271" width="74" height="18" rx="9" class="tag"/><text x="1111" y="283.5" text-anchor="middle" class="tagtext">container</text>
-  <rect x="672" y="306" width="486" height="36" rx="8" class="box"/><text x="690" y="329" class="app">autoconfig</text><rect x="1074" y="315" width="74" height="18" rx="9" class="tag"/><text x="1111" y="327.5" text-anchor="middle" class="tagtext">container</text>
-  <rect x="672" y="350" width="486" height="36" rx="8" class="box" stroke-dasharray="4 4"/><text x="690" y="373" class="app" style="fill:#5f6b7c">+ your next app</text>
+  <rect x="650" y="140" width="530" height="222" rx="14" class="zone"/>
+  <text x="672" y="162" class="zonetitle">YOUR APPS · NO PORTS OF THEIR OWN NEEDED</text>
+  <rect x="672" y="174" width="486" height="36" rx="8" class="box"/><text x="690" y="197" class="app">your-app</text><rect x="1074" y="183" width="74" height="18" rx="9" class="tag"/><text x="1111" y="195.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="218" width="486" height="36" rx="8" class="box"/><text x="690" y="241" class="app">another-app</text><rect x="1074" y="227" width="74" height="18" rx="9" class="tag"/><text x="1111" y="239.5" text-anchor="middle" class="tagtext">container</text>
+  <rect x="672" y="262" width="486" height="36" rx="8" class="box"/><text x="690" y="285" class="app">nas, router, …</text><rect x="1074" y="271" width="74" height="18" rx="9" class="tag"/><text x="1111" y="283.5" text-anchor="middle" class="tagtext">LAN IP</text>
+  <rect x="672" y="306" width="486" height="36" rx="8" class="box" stroke-dasharray="4 4"/><text x="690" y="329" class="app" style="fill:#5f6b7c">+ your next app</text>
 
   <path d="M576 240 L646 240" class="traffic"/>
   <text x="586" y="228" class="label">by name</text>
@@ -79,8 +78,8 @@
   <rect x="310" y="420" width="280" height="140" rx="14" class="box"/>
   <rect x="310" y="432" width="3" height="22" rx="1.5" fill="url(#accent)"/>
   <rect x="504" y="430" width="74" height="18" rx="9" class="tag"/><text x="541" y="442.5" text-anchor="middle" class="tagtext">container</text>
-  <text x="330" y="452" class="title">Gateway Manager</text>
-  <text x="330" y="476" class="text">Self-service web portal</text>
+  <text x="330" y="452" class="title">Traefik Manager</text>
+  <text x="330" y="476" class="text">Web GUI, optional login</text>
   <text x="330" y="496" class="text">Issues and renews certificates</text>
   <text x="330" y="516" class="text">Publishes routes, checks</text>
   <text x="330" y="534" class="text">they are live</text>
@@ -96,12 +95,12 @@
   <rect x="880" y="452" width="300" height="122" rx="14" class="box"/>
   <rect x="880" y="464" width="3" height="22" rx="1.5" fill="url(#accent)"/>
   <rect x="1094" y="462" width="74" height="18" rx="9" class="tag"/><text x="1131" y="474.5" text-anchor="middle" class="tagtext">container</text>
-  <text x="900" y="484" class="title">Portainer</text>
-  <text x="900" y="508" class="text">Deploys and manages every</text>
-  <text x="900" y="526" class="text">container on the host as a</text>
-  <text x="900" y="544" class="text">stack: gateway, manager, apps</text>
-  <path d="M1030 450 L1030 410" class="mgmt"/>
-  <text x="1040" y="436" class="mlabel">deploys + manages</text>
+  <text x="900" y="484" class="title">Portainer / Dockhand</text>
+  <text x="900" y="508" class="text">Or plain Docker Compose.</text>
+  <text x="900" y="526" class="text">Runs every stack on the host:</text>
+  <text x="900" y="544" class="text">gateway, manager, apps</text>
+  <path d="M1030 450 L1030 366" class="mgmt"/>
+  <text x="1040" y="412" class="mlabel">deploys + manages</text>
   <path d="M878 512 L596 512" class="mgmt"/>
   <rect x="690" y="494" width="96" height="16" rx="3" class="lblbg"/>
   <text x="694" y="506" class="mlabel">also manages</text>
@@ -113,10 +112,10 @@
   <path d="M1030 628 L1030 580" class="mgmt"/>
   <text x="1040" y="622" class="mlabel">pull + redeploy</text>
 
-  <!-- Apps today -->
-  <text x="40" y="726" class="zonetitle">ALREADY RUNNING ON THE GATEWAY</text>
-  <text x="40" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Prefix Reserve Portal</tspan>  ·  reserve IP addresses, backed by NetBox</text>
-  <text x="40" y="776" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Palo Security Audit</tspan>  ·  checks Palo Alto configs against security advisories</text>
-  <text x="620" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">EDL Self Service</tspan>  ·  central EDLs, add and remove entries in a web GUI</text>
-  <text x="620" y="776" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Autoconfig</tspan>  ·  standardized network config with Ansible</text>
+  <!-- Getting started -->
+  <text x="40" y="726" class="zonetitle">GET STARTED</text>
+  <text x="40" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Any Linux host with Docker</tspan>  ·  Raspberry Pi, mini PC or VM</text>
+  <text x="40" y="776" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" fill="#1c2330">curl -fsSL …/install.sh | sudo bash</text>
+  <text x="620" y="752" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Or a Portainer / Dockhand stack</tspan>  ·  from the GitHub repo</text>
+  <text x="620" y="776" font-size="13" fill="#5f6b7c"><tspan font-weight="600" fill="#1c2330">Then</tspan>  ·  one DNS record, import the root certificate</text>
 </svg>

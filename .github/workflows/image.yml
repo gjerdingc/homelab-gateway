@@ -3,13 +3,24 @@
 #   push to main   -> :latest and :sha-<short>
 #   tag v1.2.3     -> :1.2.3 and :1.2
 #   pull request   -> test and build (amd64 only), nothing pushed
+# Only when the manager, the compose file, the installer or this workflow change; docs-only pushes don't build.
 name: image
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*"]  # path filters do not apply to tags: a release tag always builds
+    paths:
+      - "manager/**"
+      - "docker-compose.yml"  # holds the Traefik version the integration test uses
+      - "install.sh"
+      - ".github/workflows/image.yml"
   pull_request:
+    paths:
+      - "manager/**"
+      - "docker-compose.yml"  # holds the Traefik version the integration test uses
+      - "install.sh"
+      - ".github/workflows/image.yml"
   workflow_dispatch:
 
 permissions:
@@ -75,3 +86,36 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Installs the stack with install.sh on a clean runner, using the image just pushed, and checks that
+  # Traefik serves the manager with a certificate from the CA the manager created on first start.
+  install:
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      FQDN: traefik.lab.example.test
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install
+        run: |
+          sudo env GATEWAY_SOURCE="$PWD" GATEWAY_DOMAIN=lab.example.test HOST_IP=127.0.0.1 \
+            LAN_CIDRS=0.0.0.0/0 TZ=UTC TM_VERSION="sha-${GITHUB_SHA::7}" ./install.sh --yes
+      - name: Traefik serves the manager with a certificate from the new CA
+        run: |
+          curl -fsS http://127.0.0.1:8090/status/root_ca.crt -o root_ca.crt
+          openssl x509 -in root_ca.crt -noout -subject -ext nameConstraints
+          for i in $(seq 1 30); do
+            if curl -fsS --cacert root_ca.crt --resolve "$FQDN:443:127.0.0.1" "https://$FQDN/" -o /dev/null; then
+              echo "OK after $i tries"; exit 0
+            fi
+            sleep 2
+          done
+          docker logs traefik-manager | tail -50
+          docker logs traefik | tail -50
+          exit 1
+      - name: Running the installer again updates in place
+        run: |
+          sudo env GATEWAY_SOURCE="$PWD" ./install.sh --yes | tee rerun.log
+          grep -q "keeping its settings" rerun.log
+          curl -fsS --cacert root_ca.crt --resolve "$FQDN:443:127.0.0.1" "https://$FQDN/" -o /dev/null

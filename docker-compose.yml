@@ -91,6 +91,9 @@ services:
     # Pin TM_VERSION to a release (e.g. 1.0.0) to choose when you upgrade; "latest" follows main.
     # To build from source instead, add docker-compose.build.yml (see the README).
     image: ${TM_IMAGE:-ghcr.io/gjerdingc/traefik-manager}:${TM_VERSION:-latest}
+    # Look for a newer image on every deploy, so a redeploy never keeps running an old "latest".
+    # Set TM_PULL_POLICY=missing to skip the check (offline hosts).
+    pull_policy: ${TM_PULL_POLICY:-always}
     container_name: traefik-manager
     restart: unless-stopped
     ports:

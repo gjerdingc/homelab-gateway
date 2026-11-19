@@ -46,6 +46,19 @@ Killing the manager does not affect traffic: Traefik only reads the files the ma
 
 The examples use `lab.example.com` for the domain, `192.168.1.10` for the host and `192.168.1.0/24` for the LAN.
 
+### With the installer (plain Docker)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gjerdingc/homelab-gateway/main/install.sh | sudo bash
+```
+
+It checks Docker and ports 80/443, asks for your domain (it suggests the host IP, LAN and time zone), offers to set up Let's Encrypt, then creates the `proxy` network and starts the stack in `/opt/homelab-gateway`. At the end it prints the DNS record to add, where to download the root certificate and its fingerprint.
+Run it again later to update; it keeps your settings. `--help` shows the options, including `--yes` for answers from environment variables.
+
+Then continue with [step 4](#4-open-it-and-trust-the-root-certificate). To see what it runs first, download it and read it before running it with `sudo bash install.sh`.
+
+### By hand, or with Portainer or Dockhand
+
 ### 1. Network
 
 ```bash
@@ -118,6 +131,7 @@ Installing the root certificate works for your own devices. For apps that guests
 | `PROXY_NETWORK` | `proxy` | The external Docker network shared with your apps |
 | `TM_VERSION` | `latest` | Manager image tag. Pin a release, e.g. `1.0.0`, to choose when you upgrade |
 | `TM_IMAGE` | `ghcr.io/gjerdingc/traefik-manager` | For a fork with its own image |
+| `TM_PULL_POLICY` | `always` | `missing` to skip the image check on every deploy |
 | `BASIC_AUTH_USERS` | – | htpasswd entries for the GUI, e.g. from `htpasswd -nB me`. In a `.env` file write each `$` as `$$` |
 | `DASHBOARD_ENABLED` | `true` | Route `/dashboard/` to the Traefik dashboard |
 | `KEY_TYPE` | `rsa-2048` | `rsa-2048` or `ec-p256` for issued certs |
@@ -132,8 +146,11 @@ Google sign-in: `SSO_ENABLED`, `SSO_DOMAIN`, `SSO_AUTH_URL` (see [Google sign-in
 
 The manager image is built by GitHub Actions for every push to `main` (tag `latest`) and every release tag (`1.0.0`, `1.0`).
 
-- **Portainer:** **Pull and redeploy** with **Re-pull image** switched on. Without it, Portainer keeps the image it already has.
-- **Plain Docker:** `git pull && docker compose pull && docker compose up -d`
+- **Portainer:** **Pull and redeploy**, with **Re-pull image** switched on to be sure.
+- **Installer:** run it again.
+- **Plain Docker:** `git pull && docker compose up -d`
+
+The manager has `pull_policy: always`, so every deploy checks for a newer image. Set `TM_PULL_POLICY=missing` on a host without internet access.
 
 With `TM_VERSION` pinned, change it to the new release and redeploy. Your apps and certificates are in `TM_ROOT` and survive any redeploy.
 

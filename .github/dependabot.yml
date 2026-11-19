@@ -1,0 +1,26 @@
+# Opens pull requests when the pinned versions here have updates. Merge them after CI passes.
+version: 2
+updates:
+  # Traefik (docker-compose.yml) and oauth2-proxy (oauth2-proxy/docker-compose.yml)
+  - package-ecosystem: docker-compose
+    directories: ["/", "/oauth2-proxy"]
+    schedule:
+      interval: weekly
+    ignore:
+      # The manager image is ours and follows TM_VERSION, not Dependabot
+      - dependency-name: "*traefik-manager*"
+
+  # The manager's base image (manager/Dockerfile)
+  - package-ecosystem: docker
+    directory: /manager
+    schedule:
+      interval: weekly
+
+  # Actions used by .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

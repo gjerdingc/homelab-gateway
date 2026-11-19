@@ -241,8 +241,8 @@ def test_edit_rejected_by_traefik_is_rolled_back(stack, monkeypatch):
 
     real = tc.render_app
 
-    def broken(app, ip_lists=None):  # a router that points at a middleware Traefik does not have
-        return real({**app, "lan_only": False}, ip_lists).replace("- secure-headers@file", "- does-not-exist@file")
+    def broken(app, *args, **kwargs):  # a router that points at a middleware Traefik does not have
+        return real({**app, "lan_only": False}, *args, **kwargs).replace("- secure-headers@file", "- does-not-exist@file")
 
     monkeypatch.setattr(tc, "render_app", broken)
     with pytest.raises(ApplyError, match="does-not-exist"):

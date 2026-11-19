@@ -1,0 +1,19 @@
+{
+  "name": "homelab-gateway",
+  "owner": {
+    "name": "gjerdingc"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for apps behind Homelab Gateway (Traefik + Traefik Manager)."
+  },
+  "plugins": [
+    {
+      "name": "homelab-deploy",
+      "source": "./plugins/homelab-deploy",
+      "description": "Containerise and deploy web apps behind Homelab Gateway: port 8080 on the proxy network, no host ports, and the values to enter under Add app.",
+      "version": "1.0.0",
+      "category": "deployment",
+      "keywords": ["docker", "traefik", "homelab", "deploy", "portainer"]
+    }
+  ]
+}

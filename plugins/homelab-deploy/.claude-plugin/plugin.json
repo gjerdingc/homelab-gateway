@@ -1,0 +1,12 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "homelab-deploy",
+  "version": "1.0.0",
+  "description": "Containerise and deploy web apps behind Homelab Gateway: port 8080 on the proxy network, no host ports, and the values to enter under Add app.",
+  "author": {
+    "name": "gjerdingc"
+  },
+  "homepage": "https://github.com/gjerdingc/homelab-gateway",
+  "repository": "https://github.com/gjerdingc/homelab-gateway",
+  "keywords": ["docker", "traefik", "homelab", "deploy", "portainer"]
+}

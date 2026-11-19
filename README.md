@@ -46,6 +46,20 @@ networks:
 
 Then **Add app** in the manager: a name such as `myapp.lab.example.com` and the backend `http://myapp:8080`. Devices on your LAN (a NAS, a router's web UI) work too: choose **External service** and give the IP.
 
+## Build apps with Claude
+
+The `homelab-deploy` plugin teaches Claude Code how apps fit the gateway: it containerises the app the right way, and ends by telling you exactly what to enter under **Add app**. Install it in Claude Code:
+
+```
+/plugin marketplace add gjerdingc/homelab-gateway
+```
+
+```
+/plugin install homelab-deploy@homelab-gateway
+```
+
+The first time, Claude asks for your apps' domain, how you deploy (Portainer, Dockhand or `docker compose`) and your time zone, and offers to remember them.
+
 ## Environment variables
 
 Set these in the installer's `.env` (`/opt/homelab-gateway/.env`, then `docker compose up -d`) or in the Portainer/Dockhand stack. [`.env.example`](.env.example) has them all with examples.

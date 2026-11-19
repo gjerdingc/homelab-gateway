@@ -1,0 +1,32 @@
+# Replace "myapp" with the app's name everywhere, and the time zone with the user's.
+# Deploy as a Portainer/Dockhand stack from the Git repo, or with: docker compose up -d --build
+# Then in Traefik Manager: Add app -> myapp.<domain> -> http://myapp:8080
+services:
+  myapp:
+    build: .
+    image: myapp:latest
+    # Build from the repo on every deploy, so a redeploy picks up new commits
+    pull_policy: build
+    container_name: myapp
+    restart: unless-stopped
+    # Plain HTTP on 8080, reachable only on the "proxy" network, through the gateway
+    expose:
+      - "8080"
+    networks:
+      - proxy
+    environment:
+      TZ: Europe/Oslo
+      # Secrets come from the stack's environment variables or .env, e.g.:
+      # API_KEY: ${API_KEY}
+    # volumes:
+    #   - /opt/myapp:/data
+    # When the image has wget (Alpine, BusyBox) or curl:
+    # healthcheck:
+    #   test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+
+networks:
+  proxy:
+    external: true

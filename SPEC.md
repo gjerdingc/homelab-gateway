@@ -7,7 +7,7 @@
 > [docs/lab.md](docs/lab.md) holds the lab's own values.
 
 Status: v3 (all lab values filled in), ready to hand to an implementer
-Target repo: `gjerdingc/traefik-lab-lb` (currently empty)
+Target repo: `gjerdingc/homelab-gateway` (currently empty)
 Target host: Raspberry Pi (arm64), Docker, deployed as a **Portainer Git stack**
 
 ---
@@ -111,10 +111,10 @@ Key decisions:
 
 ---
 
-## 4. Repository layout (`traefik-lab-lb`)
+## 4. Repository layout (`homelab-gateway`, originally `traefik-lab-lb`)
 
 ```
-traefik-lab-lb/
+homelab-gateway/
 ├── docker-compose.yml          # Portainer stack: traefik + traefik-manager
 ├── README.md                   # Deploy, migrate, add an app, troubleshoot
 ├── SPEC.md                     # This file
@@ -171,7 +171,7 @@ Keep the current and the **previous** cert pair per app. Delete older ones after
 Values in `${…}` are set as stack environment variables in Portainer.
 
 ```yaml
-# Portainer stack: Repository gjerdingc/traefik-lab-lb, compose path docker-compose.yml
+# Portainer stack: Repository gjerdingc/homelab-gateway, compose path docker-compose.yml
 services:
   traefik:
     image: traefik:v3.5          # pin an exact current v3 tag; check latest at build time
@@ -447,7 +447,7 @@ All state-changing actions are POST with a CSRF token. Flask-WTF is fine, or a s
 3. **Prepare dirs:** `sudo mkdir -p /opt/traefik/{dynamic,certs,manager}`.
 4. **Stop and remove** the old Traefik container/stack in Portainer (this frees ports 80/443).
 5. **Create the DNS record** `traefik.gjecorp.net → 10.0.0.250` (if it doesn't already exist).
-6. **Deploy** the new stack in Portainer from `gjerdingc/traefik-lab-lb` with the env vars from §7.
+6. **Deploy** the new stack in Portainer from `gjerdingc/homelab-gateway` with the env vars from §7.
 7. Open `https://traefik.gjecorp.net`. If it doesn't load, use `http://10.0.0.250:8090` and check the Status page.
 8. **Re-add** `palo-security-audit` and `edl-self-service` via the GUI using the values in §2.1 (new certs are fine, since clients trust the root CA). Remove any `ports:` they still publish on the host so they're only reachable through Traefik.
 9. Verify each app in a browser. Then delete `/opt/traefik.old-*` when satisfied.

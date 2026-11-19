@@ -1,4 +1,4 @@
-# Traefik Manager
+# Homelab Gateway
 
 Traefik v3 in front of your self-hosted apps, plus **Traefik Manager**, a small web GUI that
 issues a certificate for each app (from your own CA, or from Let's Encrypt) and writes the Traefik
@@ -93,12 +93,12 @@ An existing CA works too (e.g. one made with `step`): put the intermediate cert 
 
 ### 4. Deploy
 
-**Portainer or Dockhand:** add a stack from a Git repository: `https://github.com/gjerdingc/traefik-lab-lb`, compose path `docker-compose.yml`. Enter the variables below as the stack's environment variables.
+**Portainer or Dockhand:** add a stack from a Git repository: `https://github.com/gjerdingc/homelab-gateway`, compose path `docker-compose.yml`. Enter the variables below as the stack's environment variables.
 
 **Plain Docker:**
 
 ```bash
-git clone https://github.com/gjerdingc/traefik-lab-lb && cd traefik-lab-lb && cp .env.example .env
+git clone https://github.com/gjerdingc/homelab-gateway && cd homelab-gateway && cp .env.example .env
 ```
 
 Edit `.env`, then:

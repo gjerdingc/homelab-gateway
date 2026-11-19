@@ -39,7 +39,7 @@
 
   <rect x="30" y="100" width="180" height="88" rx="10" class="box"/>
   <text x="46" y="126" class="title">GitHub → Portainer</text>
-  <text x="46" y="146" class="text">Stack from traefik-lab-lb</text>
+  <text x="46" y="146" class="text">Stack from homelab-gateway</text>
   <text x="46" y="164" class="text">deploys both containers</text>
   <path d="M210 144 L246 144" class="mgmt"/>
 

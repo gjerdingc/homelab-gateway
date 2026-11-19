@@ -6,7 +6,7 @@ How this stack is deployed on the Raspberry Pi in the `gjecorp.net` lab. The gen
 
 | Setting | Value |
 |---|---|
-| Host | Raspberry Pi (arm64), Portainer CE, Git stack from `gjerdingc/traefik-lab-lb` |
+| Host | Raspberry Pi (arm64), Portainer CE, Git stack from `gjerdingc/homelab-gateway` |
 | `HOST_IP` (set as `PI_IP`, the old name) | `10.0.0.250` |
 | `LAN_CIDRS` | `10.0.0.0/24` |
 | `MANAGER_FQDN` | `traefik.gjecorp.net` (GUI at `/`, dashboard at `/dashboard/`) |
@@ -43,6 +43,8 @@ These became variables when the stack was made portable. Without them the stack 
 | `SSO_DOMAIN` (oauth2-proxy stack) | `oplassen.net` | The oauth2-proxy stack refuses to deploy; it no longer has a default |
 
 `PI_IP` keeps working; it can be renamed to `HOST_IP` at any time.
+
+The repository was renamed from `traefik-lab-lb` to `homelab-gateway`. GitHub redirects the old URL, but set the stack's repository URL to `https://github.com/gjerdingc/homelab-gateway` so it does not depend on that.
 
 ## Apps
 

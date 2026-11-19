@@ -98,7 +98,7 @@ def create_app(env=None, start_background=True):
     def require_login():
         if request.path in open_paths or login.check(request.headers.get("Authorization")):
             return None
-        resp = Response("Log in to use Traefik Manager. Forgot the password? See Settings in the README.\n",
+        resp = Response("Log in to use Traefik Manager. Forgot the password? See Login in docs/guide.md.\n",
                         401, mimetype="text/plain")
         resp.headers["WWW-Authenticate"] = f'Basic realm="{auth.REALM}", charset="UTF-8"'
         return resp
@@ -139,7 +139,7 @@ def create_app(env=None, start_background=True):
             if uncovered:
                 banners.append(("warn", f"The internal CA can only sign names under {', '.join(permitted)}, so it "
                                         f"cannot issue for {', '.join(uncovered)}. Use Let's Encrypt for those names, "
-                                        "or make a new CA (see Certificates in the README)."))
+                                        "or make a new CA (see Certificates in docs/guide.md)."))
         if ca and ca.expires_soon:
             banners.append(("warn", "The intermediate CA expires within 60 days. Plan a replacement."))
         for w in config.warnings:

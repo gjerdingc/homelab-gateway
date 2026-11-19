@@ -4,7 +4,7 @@
 > reasoning and the acceptance criteria. Paths, defaults and the compose file have since been made
 > portable: `TM_ROOT`, `PKI_DIR`, `TZ`, `HOST_IP` (formerly `PI_IP`), a prebuilt image instead of
 > `build:`, a choice of DNS provider for Let's Encrypt, and a CA the manager creates itself on a fresh
-> install (see "Certificates" in the README). The [README](README.md) is current;
+> install (see "Certificates" in [docs/guide.md](docs/guide.md)). The [README](README.md) and the guide are current;
 > [docs/lab.md](docs/lab.md) holds the lab's own values.
 
 Status: v3 (all lab values filled in), ready to hand to an implementer

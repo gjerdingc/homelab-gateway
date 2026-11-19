@@ -5,7 +5,7 @@
 # Plain Docker:         cp .env.example .env, edit it, then: docker compose up -d
 #
 # Every variable is listed with an example in .env.example; the README explains them.
-# Before the first deploy: create the proxy network (see "Quick start" in the README). On first start the
+# Before the first deploy: create the proxy network (see "Install" in the README). On first start the
 # manager creates its own CA; download its root certificate from the Status page.
 services:
   traefik:
@@ -89,7 +89,7 @@ services:
   traefik-manager:
     # Prebuilt for amd64, arm64 and armv7 by .github/workflows/image.yml.
     # Pin TM_VERSION to a release (e.g. 1.0.0) to choose when you upgrade; "latest" follows main.
-    # To build from source instead, add docker-compose.build.yml (see the README).
+    # To build from source instead, add docker-compose.build.yml (see "Updating" in docs/guide.md).
     image: ${TM_IMAGE:-ghcr.io/gjerdingc/traefik-manager}:${TM_VERSION:-latest}
     # Look for a newer image on every deploy, so a redeploy never keeps running an old "latest".
     # Set TM_PULL_POLICY=missing to skip the check (offline hosts).

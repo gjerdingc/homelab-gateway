@@ -159,7 +159,7 @@ else
       hetzner)      PROVIDER_VARS="HETZNER_API_TOKEN" ;;
       ovh)          PROVIDER_VARS="OVH_ENDPOINT OVH_APPLICATION_KEY OVH_APPLICATION_SECRET OVH_CONSUMER_KEY" ;;
       porkbun)      PROVIDER_VARS="PORKBUN_API_KEY PORKBUN_SECRET_API_KEY" ;;
-      *) die "'$ACME_DNS_PROVIDER' is not one of the providers the installer knows. Install without Let's Encrypt and add it afterwards (README: Let's Encrypt certificates)" ;;
+      *) die "'$ACME_DNS_PROVIDER' is not one of the providers the installer knows. Install without Let's Encrypt and add it afterwards (docs/guide.md: Let's Encrypt certificates)" ;;
     esac
     for v in $PROVIDER_VARS; do
       case "$v" in

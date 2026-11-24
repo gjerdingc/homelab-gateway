@@ -559,9 +559,10 @@ class Manager:
     # ---- bootstrap, regenerate, renew ------------------------------------------
 
     def _manager_sans(self):
-        """The manager's certificate also covers the sign-in route, auth.<SSO_DOMAIN>."""
+        """The manager's certificate also covers the sign-in route, auth.<SSO_DOMAIN>, unless
+        Traefik gets that one from Let's Encrypt."""
         c = self.config
-        return [c.sso_auth_host] if c.sso_enabled and c.sso_auth_host else []
+        return [c.sso_auth_host] if c.sso_enabled and c.sso_auth_host and not c.sso_auth_letsencrypt else []
 
     def _manager_record(self):
         rec = self.get(MANAGER_SLUG)

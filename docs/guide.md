@@ -354,6 +354,7 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 | `OAUTH_CLIENT_ID` | From step 1 | |
 | `OAUTH_CLIENT_SECRET` | From step 1 | Never commit this |
 | `OAUTH_COOKIE_SECRET` | `openssl rand -base64 32 \| tr -- '+/' '-_'` | Never commit this |
+| `SSO_AUTH_CERT` | `internal` or `letsencrypt` | Optional, default `internal`. See below |
 
 4. **Check**: the Status page shows *Google sign-in: available*. The manager's certificate now also covers `auth.lab.example.com`, and the route to oauth2-proxy is in place; there is no app to add for it.
 5. **Pick apps**: edit an app under `SSO_DOMAIN`, tick **Require Google sign-in** and save. The app list marks it *sign-in*.
@@ -365,7 +366,9 @@ On the first deploy oauth2-proxy may restart once or twice: it waits for the man
 - Who may sign in is `SSO_ALLOWED_EMAILS`. The manager writes it to `<TM_ROOT>/oauth2-proxy/emails.txt` when it starts, so change the variable and redeploy. Leave the variable empty to keep editing that file by hand instead; then restart oauth2-proxy after a change.
 - An app gets the user from `X-Auth-Request-Email`. Only trust it when the app is reached through Traefik: an app with a published host port can be called around the gateway with any header.
 - Sign-in needs internet access to Google, from the browser and from this host. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.
-- `auth.<SSO_DOMAIN>` uses the internal CA (it shares the manager's certificate), so devices need the root certificate, as for internal-CA apps.
+- **Certificate for `auth.<SSO_DOMAIN>`.** Every signed-in browser opens this page, so it must be trusted:
+  - `SSO_AUTH_CERT=internal` (default): the name is added to the manager's certificate. Devices need the root certificate, as for internal-CA apps.
+  - `SSO_AUTH_CERT=letsencrypt`: Traefik gets a Let's Encrypt certificate for it, so any device can sign in. Needs [Let's Encrypt](#lets-encrypt-certificates) set up, with a DNS token that covers `SSO_DOMAIN`'s zone (a Cloudflare token limited to another zone fails). The name then comes off the manager's certificate, because Traefik only asks Let's Encrypt for names no loaded certificate covers. For the first minute or two, until the certificate arrives, Traefik serves its default certificate; Traefik's log (search for `acme`) shows problems.
 - The cookie is valid for every app under `SSO_DOMAIN`, so each of them receives it.
 - Turning sign-in off (removing `sso` from `COMPOSE_PROFILES`) while apps still require it does not open them: their routers point at a middleware that no longer exists, so Traefik rejects them (404) until sign-in is removed from the app or turned back on. Scripts and monitors that call an app need a route without sign-in.
 - `SSO_ENABLED=false` keeps sign-in off in the manager even with the profile on; `SSO_ENABLED=true` turns it on without starting oauth2-proxy here, for an oauth2-proxy you run elsewhere (set `SSO_AUTH_URL` to it).

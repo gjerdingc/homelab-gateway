@@ -219,13 +219,15 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
     if config.sso_enabled and config.sso_auth_host:
         # Not LAN-only: apps open to any client need their visitors to reach the sign-in too.
         # oauth2-proxy itself only lets through what Google vouched for. Served with the manager's
-        # certificate, which carries this name as well.
+        # certificate, which carries this name as well, or with one Traefik gets from Let's Encrypt.
+        # (Traefik asks Let's Encrypt only for names no loaded certificate covers, so the manager's
+        # certificate leaves this name out then.)
         routers[SSO_SIGNIN] = {
             "rule": f"Host(`{config.sso_auth_host}`)",
             "entryPoints": ["websecure"],
             "service": SSO_SIGNIN,
             "middlewares": ["secure-headers@file"],
-            "tls": {},
+            "tls": {"certResolver": config.letsencrypt_resolver} if config.sso_auth_letsencrypt else {},
         }
         services[SSO_SIGNIN] = {"loadBalancer": {"servers": [{"url": config.sso_auth_url}]}}
 

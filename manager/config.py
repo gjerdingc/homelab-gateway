@@ -59,6 +59,9 @@ class Config:
         # a hand-written emails.txt is left alone.
         self.sso_allowed_emails = list(dict.fromkeys(e.lower() for e in _split(env.get("SSO_ALLOWED_EMAILS"))))
         self.sso_dir = env.get("TM_SSO_DIR", "/oauth2-proxy")
+        # Certificate for auth.<SSO_DOMAIN>: the internal CA (on the manager's own certificate), or
+        # Let's Encrypt, so devices without the root certificate can sign in too.
+        self.sso_auth_cert = env.get("SSO_AUTH_CERT", "").strip().lower() or "internal"
         self.sso_domain = env.get("SSO_DOMAIN", "").strip().lower().lstrip(".").rstrip(".")
         self.sso_auth_url = env.get("SSO_AUTH_URL", "http://oauth2-proxy:4180").strip().rstrip("/")
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
@@ -157,6 +160,11 @@ class Config:
             elif not self.sso_allowed_emails and not os.path.isfile(self.sso_emails_path):
                 self.warnings.append("Google sign-in is on but nobody may sign in yet: set SSO_ALLOWED_EMAILS "
                                      "in the stack")
+            if self.sso_auth_cert not in ("internal", "letsencrypt"):
+                e.append(f"SSO_AUTH_CERT must be internal or letsencrypt, got {self.sso_auth_cert!r}")
+            elif self.sso_auth_cert == "letsencrypt" and not self.letsencrypt_enabled:
+                e.append("SSO_AUTH_CERT=letsencrypt needs Let's Encrypt set up (LETSENCRYPT_ENABLED=true "
+                         "and the DNS provider's credentials)")
             parsed = urlparse(self.sso_auth_url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.path not in ("", "/"):
                 e.append(f"SSO_AUTH_URL {self.sso_auth_url!r} must look like http://oauth2-proxy:4180")
@@ -165,6 +173,10 @@ class Config:
     def sso_auth_host(self):
         """The sign-in route: Google sends the browser back to https://<this>/oauth2/callback."""
         return f"auth.{self.sso_domain}" if self.sso_domain else ""
+
+    @property
+    def sso_auth_letsencrypt(self):
+        return self.sso_enabled and self.sso_auth_cert == "letsencrypt"
 
     @property
     def sso_emails_path(self):

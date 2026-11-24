@@ -17,7 +17,7 @@ How this stack is deployed on the Raspberry Pi in the `gjecorp.net` lab. The gen
 | `TM_ROOT` | `/opt/traefik` (the default) |
 | Break-glass | `http://10.0.0.250:8090` |
 | Let's Encrypt | `ACME_DNS_PROVIDER=cloudflare` (the default), zone `gjecorp.net` on Cloudflare, token in `CF_DNS_API_TOKEN` |
-| Google sign-in | `SSO_DOMAIN=oplassen.net`, sign-in route `auth.oplassen.net` |
+| Google sign-in | `SSO_DOMAIN=oplassen.net`, sign-in route `auth.oplassen.net`. For `SSO_AUTH_CERT=letsencrypt`, `CF_DNS_API_TOKEN` must also cover the `oplassen.net` zone |
 
 The PKI folder layout:
 

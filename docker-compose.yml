@@ -136,6 +136,8 @@ services:
       SSO_DOMAIN: ${SSO_DOMAIN:-}
       SSO_ALLOWED_EMAILS: ${SSO_ALLOWED_EMAILS:-}
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
+      # Certificate for auth.<SSO_DOMAIN>: internal (default) or letsencrypt (needs LETSENCRYPT_ENABLED)
+      SSO_AUTH_CERT: ${SSO_AUTH_CERT:-internal}
     volumes:
       - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic
       - ${TM_ROOT:-/opt/traefik}/certs:/etc/traefik/certs

@@ -227,3 +227,14 @@ def test_allowed_emails_are_cleaned_and_checked():
     assert c.sso_allowed_emails == ["me@gmail.com", "you@oplassen.net"]
     assert any("not an email address" in e for e in core_config(**SSO_ENV, SSO_ALLOWED_EMAILS="nope").errors)
     assert any("nobody may sign in" in w for w in core_config(**SSO_ENV, TM_SSO_DIR="/nonexistent").warnings)
+
+
+def test_sign_in_host_can_use_lets_encrypt():
+    config = core_config(**SSO_ENV, SSO_AUTH_CERT="letsencrypt", LETSENCRYPT_ENABLED="true")
+    assert config.ok, config.errors
+    assert config.sso_auth_letsencrypt
+    router = yaml.safe_load(tc.render_core(config, None))["http"]["routers"]["sso-signin"]
+    assert router["tls"] == {"certResolver": "letsencrypt"}
+    assert not core_config(**SSO_ENV).sso_auth_letsencrypt  # internal by default
+    assert any("needs Let's Encrypt set up" in e for e in core_config(**SSO_ENV, SSO_AUTH_CERT="letsencrypt").errors)
+    assert any("SSO_AUTH_CERT must be" in e for e in core_config(**SSO_ENV, SSO_AUTH_CERT="acme").errors)

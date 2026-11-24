@@ -594,3 +594,17 @@ def test_startup_writes_the_allow_list(sso_manager):
     m.config.sso_allowed_emails = []
     m.startup()
     assert open(path).read() == "hand@kept.net\n"
+
+
+def test_lets_encrypt_sign_in_host_is_left_off_the_manager_cert(sso_manager):
+    m = sso_manager
+    first = m.get("_manager")["cert"]["serial"]
+    m.config.letsencrypt_enabled, m.config.sso_auth_cert = True, "letsencrypt"
+    assert m.ensure_manager_cert() is not None  # reissued without the name
+    mgr = m.get("_manager")
+    assert mgr["extra_sans"] == [] and mgr["cert"]["serial"] != first
+    m.regenerate_all()
+    router = yaml.safe_load(open(dyn(m, "_core.yml")).read())["http"]["routers"]["sso-signin"]
+    assert router["tls"] == {"certResolver": "letsencrypt"}
+    m.renew_app("_manager")
+    assert m.get("_manager")["extra_sans"] == []

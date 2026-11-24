@@ -629,9 +629,12 @@ def test_cookie_secret_is_made_once_and_private(sso_manager):
     # 32 random bytes, base64url with padding: the form oauth2-proxy expects. No trailing newline.
     assert len(secret) == 44 and len(base64.urlsafe_b64decode(secret)) == 32
     st = os.stat(path)
-    assert oct(st.st_mode & 0o777) == "0o400"
     if os.geteuid() == 0:
-        assert st.st_uid == service.OAUTH2_PROXY_UID
+        # As in the container: handed to oauth2-proxy's user, readable by it alone.
+        assert st.st_uid == service.OAUTH2_PROXY_UID and oct(st.st_mode & 0o777) == "0o400"
+    else:
+        # Not root (e.g. CI): the file can't be given away, so it is left readable for oauth2-proxy.
+        assert oct(st.st_mode & 0o777) == "0o644"
     # Kept on the next start, so nobody is signed out by a redeploy.
     m.startup()
     assert open(path).read() == secret

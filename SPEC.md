@@ -268,7 +268,9 @@ Validate all of these at startup. On bad config, log a clear error and show it o
 | `BASIC_AUTH_USERS` | no | – | Optional htpasswd-style string. If set, applied to the manager and dashboard routers |
 | `LETSENCRYPT_ENABLED` | no | `false` | Offer Let's Encrypt as an app's certificate source. Traefik needs `CF_DNS_API_TOKEN` (stack env, Traefik only) |
 | `LETSENCRYPT_RESOLVER` | no | `letsencrypt` | Name of Traefik's ACME cert resolver, as configured in `docker-compose.yml` |
-| `SSO_ENABLED` | no | `false` | Offer *Require Google sign-in* per app. Adds the `sso` ForwardAuth chain (oauth2-proxy) to `_core.yml` |
+| `COMPOSE_PROFILES` | no | – | With `sso` in it, compose starts oauth2-proxy and the manager turns sign-in on (unless `SSO_ENABLED` says otherwise) |
+| `SSO_ENABLED` | no | from `COMPOSE_PROFILES` | Offer *Require Google sign-in* per app. Adds the `sso` ForwardAuth chain and the `sso-signin` router for `auth.<SSO_DOMAIN>` to `_core.yml`, and that name to the manager's certificate |
+| `SSO_ALLOWED_EMAILS` | no | – | Comma-separated Google accounts. Written to `/oauth2-proxy/emails.txt` (oauth2-proxy's allow-list) at startup; when empty, the file is left alone |
 | `SSO_DOMAIN` | if `SSO_ENABLED` | – | oauth2-proxy's cookie domain, e.g. `oplassen.net`. Must be inside `ALLOWED_DOMAINS`; apps with sign-in must have all their names under it |
 | `SSO_AUTH_URL` | no | `http://oauth2-proxy:4180` | oauth2-proxy as Traefik reaches it; the ForwardAuth address is this URL with `/` |
 

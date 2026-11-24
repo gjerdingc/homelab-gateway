@@ -1,9 +1,9 @@
 # Opens pull requests when the pinned versions here have updates. Merge them after CI passes.
 version: 2
 updates:
-  # Traefik (docker-compose.yml) and oauth2-proxy (oauth2-proxy/docker-compose.yml)
+  # Traefik and oauth2-proxy (docker-compose.yml)
   - package-ecosystem: docker-compose
-    directories: ["/", "/oauth2-proxy"]
+    directory: /
     schedule:
       interval: weekly
     ignore:

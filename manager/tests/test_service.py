@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 import pki
+from cryptography import x509
 import traefik_config as tc
 from conftest import FORM, make_env, write_pki
 from service import ApplyError
@@ -547,3 +548,49 @@ def test_sign_in_refused_when_not_set_up(manager):
     with pytest.raises(ApplyError) as exc:
         manager.create_app({**FORM, "require_sign_in": "on"})
     assert "require_sign_in" in exc.value.field_errors and manager.apps() == []
+
+
+def test_sign_in_host_is_on_the_manager_cert_and_reserved(sso_manager):
+    m = sso_manager
+    mgr = m.get("_manager")
+    assert mgr["extra_sans"] == ["auth.oplassen.net"]
+    cert = pki.load_cert_file(mgr["cert"]["cert_path"])
+    sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+    assert "auth.oplassen.net" in sans
+    assert "sso-signin" in yaml.safe_load(open(dyn(m, "_core.yml")).read())["http"]["routers"]
+    # Nobody else can take the name or the router's slug.
+    with pytest.raises(ApplyError) as exc:
+        m.create_app({**FORM, "slug": "auth", "fqdn": "auth.oplassen.net"})
+    assert "already used" in exc.value.field_errors["fqdn"]
+    with pytest.raises(ApplyError) as exc:
+        m.create_app({**FORM, "slug": "sso-signin"})
+    assert "reserved" in exc.value.field_errors["slug"]
+    # Renewing keeps the name.
+    m.renew_app("_manager")
+    assert m.get("_manager")["extra_sans"] == ["auth.oplassen.net"]
+
+
+def test_turning_sign_in_on_later_reissues_the_manager_cert(manager):
+    manager.startup()
+    first = manager.get("_manager")["cert"]["serial"]
+    manager.config.allowed_domains.append("oplassen.net")
+    manager.config.sso_enabled, manager.config.sso_domain = True, "oplassen.net"
+    assert manager.ensure_manager_cert() is not None
+    assert manager.get("_manager")["cert"]["serial"] != first
+    assert manager.ensure_manager_cert() is None  # nothing to do the second time
+
+
+def test_startup_writes_the_allow_list(sso_manager):
+    m = sso_manager
+    path = m.config.sso_emails_path
+    assert not os.path.exists(path)  # SSO_ALLOWED_EMAILS empty: left alone
+    m.config.sso_allowed_emails = ["me@gmail.com", "you@oplassen.net"]
+    m.startup()
+    assert open(path).read() == "me@gmail.com\nyou@oplassen.net\n"
+    assert oct(os.stat(path).st_mode & 0o777) == "0o644"
+    assert m.write_sso_allow_list() is False  # unchanged: not rewritten
+    # A hand-kept file survives a deploy without SSO_ALLOWED_EMAILS.
+    open(path, "w").write("hand@kept.net\n")
+    m.config.sso_allowed_emails = []
+    m.startup()
+    assert open(path).read() == "hand@kept.net\n"

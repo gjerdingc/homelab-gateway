@@ -358,7 +358,7 @@ class Manager:
                                  "about 30 days before it expires.")
             app = copy.deepcopy(prev)
             if app.get("reserved"):
-                app["fqdn"], app["extra_sans"] = self.config.manager_fqdn, []
+                app["fqdn"], app["extra_sans"] = self.config.manager_fqdn, self._manager_sans()
             return self._apply(app, prev, True, "renewed")
 
     def set_enabled(self, slug, enabled):
@@ -558,12 +558,17 @@ class Manager:
 
     # ---- bootstrap, regenerate, renew ------------------------------------------
 
+    def _manager_sans(self):
+        """The manager's certificate also covers the sign-in route, auth.<SSO_DOMAIN>."""
+        c = self.config
+        return [c.sso_auth_host] if c.sso_enabled and c.sso_auth_host else []
+
     def _manager_record(self):
         rec = self.get(MANAGER_SLUG)
         now = st.now_iso()
         base = {
             "slug": MANAGER_SLUG, "reserved": True, "kind": "internal",
-            "fqdn": self.config.manager_fqdn, "extra_sans": [],
+            "fqdn": self.config.manager_fqdn, "extra_sans": self._manager_sans(),
             "backend_url": self.config.manager_backend, "backend_tls_skip_verify": False,
             "pass_host_header": True, "lan_only": True, "security_headers": False, "enabled": True,
             "notes": "Traefik Manager and dashboard (system entry)",
@@ -577,7 +582,7 @@ class Manager:
         self._require_ready()
         with self.lock:
             app, prev = self._manager_record()
-            reissue = (prev is None or prev.get("fqdn") != self.config.manager_fqdn
+            reissue = (prev is None or _names(prev) != _names(app)
                        or not self.cert_files_exist(prev) or self.cert_expired(prev))
             if reissue:
                 return self._apply(app, prev, True, "issued manager cert" if prev is None else "reissued manager cert")
@@ -609,6 +614,8 @@ class Manager:
 
     def startup(self):
         """Run once at boot. Failures are kept for the GUI banner, never raised."""
+        if self.config.ok:
+            self.write_sso_allow_list()
         if not self.ready:
             self.actions.write(self.problem(), "ERROR")
             return
@@ -618,6 +625,30 @@ class Manager:
         except Exception as exc:
             self.startup_error = str(exc)
             self.actions.write(f"startup failed: {exc}", "ERROR")
+
+    def write_sso_allow_list(self):
+        """Write SSO_ALLOWED_EMAILS to oauth2-proxy's emails.txt (one address per line).
+
+        Left alone when SSO_ALLOWED_EMAILS is empty, so a hand-kept file keeps working."""
+        c = self.config
+        if not (c.sso_enabled and c.sso_allowed_emails):
+            return False
+        text = "".join(f"{m}\n" for m in c.sso_allowed_emails)
+        path = c.sso_emails_path
+        try:
+            if st.read_text(path) == text:
+                return False
+            os.makedirs(c.sso_dir, exist_ok=True)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w") as f:
+                f.write(text)
+            os.chmod(tmp, 0o644)  # oauth2-proxy runs as a non-root user
+            os.replace(tmp, path)
+        except OSError as exc:
+            self.actions.write(f"could not write the sign-in allow-list {path}: {exc}", "ERROR")
+            return False
+        self.actions.write(f"sign-in allow-list: {len(c.sso_allowed_emails)} address(es)")
+        return True
 
     def renew_due(self):
         """Renew every app whose cert is close to expiry. Returns (renewed, errors)."""

@@ -143,7 +143,7 @@ Installing the root certificate works for your own devices. For apps that guests
 | `TRAEFIK_API_URL` / `TRAEFIK_HTTPS_PORT` | `http://traefik:8080` / `443` | Only if you change the Traefik service |
 
 Let's Encrypt: `LETSENCRYPT_ENABLED`, `ACME_DNS_PROVIDER`, the provider's credentials, `ACME_EMAIL`, `ACME_CA_SERVER`, `ACME_DNS_RESOLVERS` (see [Let's Encrypt certificates](#lets-encrypt-certificates)).
-Google sign-in: `SSO_ENABLED`, `SSO_DOMAIN`, `SSO_AUTH_URL` (see [Google sign-in](#google-sign-in)).
+Google sign-in: `COMPOSE_PROFILES=sso`, `SSO_DOMAIN`, `SSO_ALLOWED_EMAILS`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_COOKIE_SECRET` (see [Google sign-in](#google-sign-in)).
 
 ## Updating
 
@@ -332,7 +332,7 @@ In the stack:
 
 ## Google sign-in
 
-Apps you pick can require a Google sign-in before Traefik lets a request through. The sign-in itself is done by **oauth2-proxy**, a separate stack ([`oauth2-proxy/docker-compose.yml`](../oauth2-proxy/docker-compose.yml)). The manager only adds a ForwardAuth middleware to those apps' routers.
+Apps you pick can require a Google sign-in before Traefik lets a request through. The sign-in itself is done by **oauth2-proxy**, which is part of this stack but only starts when you turn sign-in on (the Compose profile `sso`). The manager adds a ForwardAuth middleware to the apps you pick, routes the sign-in page, and writes oauth2-proxy's list of allowed accounts.
 
 How a request goes: the app's router runs `sso@file`, which first removes any `X-Auth-Request-*` headers the client sent, then asks oauth2-proxy. With a valid sign-in cookie oauth2-proxy answers 202 and Traefik passes the request on, with `X-Auth-Request-Email` and `X-Auth-Request-User` set to the signed-in user. Without a cookie the browser goes to Google, back to `https://auth.<SSO_DOMAIN>/oauth2/callback`, and on to the page it asked for. One sign-in covers every app under `SSO_DOMAIN`.
 
@@ -343,37 +343,33 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 1. **Google Cloud Console** > APIs & Services:
    - *OAuth consent screen*: user type *External*, publishing status *Testing*, and add the Google accounts that may sign in as test users. Add your `SSO_DOMAIN` as an authorised domain.
    - *Credentials > Create credentials > OAuth client ID*, type *Web application*, authorised redirect URI `https://auth.lab.example.com/oauth2/callback`. Copy the client ID and secret.
-2. **The allow-list** on the host, one email address per line (oauth2-proxy lets in only these):
-   `sudo mkdir -p /opt/oauth2-proxy && echo "you@gmail.com" | sudo tee /opt/oauth2-proxy/emails.txt`
-3. **Deploy the oauth2-proxy stack**: same repository, compose path `oauth2-proxy/docker-compose.yml`, with these variables:
-
-| Variable | Value |
-|---|---|
-| `OAUTH_CLIENT_ID` | From step 1 |
-| `OAUTH_CLIENT_SECRET` | From step 1. Never commit this |
-| `OAUTH_COOKIE_SECRET` | `openssl rand -base64 32 \| tr -- '+/' '-_'` |
-| `SSO_DOMAIN` | `lab.example.com` (required) |
-| `TZ` | Optional, default `UTC` |
-
-4. **In the Traefik stack**, add the variables below and redeploy. The Status page shows *Google sign-in: available*.
+2. **DNS**: point `auth.lab.example.com` at this host, like your apps (nothing to do with a wildcard record).
+3. **Stack variables**: add these and redeploy (Portainer: *Pull and redeploy*; plain Docker: edit `.env`, then `docker compose up -d`).
 
 | Variable | Value | Notes |
 |---|---|---|
-| `ALLOWED_DOMAINS` | must include `lab.example.com` | The sign-in domain must be allowed |
-| `SSO_ENABLED` | `true` | Shows *Require Google sign-in* on the app form |
-| `SSO_DOMAIN` | `lab.example.com` | Same as in the oauth2-proxy stack. Apps with sign-in must have all their names under it |
-| `SSO_AUTH_URL` | `http://oauth2-proxy:4180` | Default. oauth2-proxy as Traefik sees it on the proxy network |
+| `COMPOSE_PROFILES` | `sso` | Starts oauth2-proxy and turns sign-in on in the manager |
+| `SSO_DOMAIN` | `lab.example.com` | The domain the sign-in cookie covers. Must be in `ALLOWED_DOMAINS`; apps with sign-in must have all their names under it |
+| `SSO_ALLOWED_EMAILS` | `you@gmail.com,partner@gmail.com` | The Google accounts that may sign in |
+| `OAUTH_CLIENT_ID` | From step 1 | |
+| `OAUTH_CLIENT_SECRET` | From step 1 | Never commit this |
+| `OAUTH_COOKIE_SECRET` | `openssl rand -base64 32 \| tr -- '+/' '-_'` | Never commit this |
 
-5. **Add the sign-in route** as an ordinary app: slug `auth`, FQDN `auth.lab.example.com`, backend `http://oauth2-proxy:4180`, *without* sign-in (the manager refuses it there). Create the DNS record if you have no wildcard.
-6. **Pick apps**: edit an app under `SSO_DOMAIN`, tick **Require Google sign-in** and save. The app list marks it *sign-in*.
+4. **Check**: the Status page shows *Google sign-in: available*. The manager's certificate now also covers `auth.lab.example.com`, and the route to oauth2-proxy is in place; there is no app to add for it.
+5. **Pick apps**: edit an app under `SSO_DOMAIN`, tick **Require Google sign-in** and save. The app list marks it *sign-in*.
+
+On the first deploy oauth2-proxy may restart once or twice: it waits for the manager to write the allow-list (`<TM_ROOT>/oauth2-proxy/emails.txt`).
 
 ### Good to know
 
-- Who may sign in is decided by `/opt/oauth2-proxy/emails.txt`. Restart the oauth2-proxy container after changing it.
+- Who may sign in is `SSO_ALLOWED_EMAILS`. The manager writes it to `<TM_ROOT>/oauth2-proxy/emails.txt` when it starts, so change the variable and redeploy. Leave the variable empty to keep editing that file by hand instead; then restart oauth2-proxy after a change.
 - An app gets the user from `X-Auth-Request-Email`. Only trust it when the app is reached through Traefik: an app with a published host port can be called around the gateway with any header.
-- Sign-in needs internet access to Google. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.
+- Sign-in needs internet access to Google, from the browser and from this host. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.
+- `auth.<SSO_DOMAIN>` uses the internal CA (it shares the manager's certificate), so devices need the root certificate, as for internal-CA apps.
 - The cookie is valid for every app under `SSO_DOMAIN`, so each of them receives it.
-- Turning `SSO_ENABLED` off while apps still require sign-in does not open them: their routers point at a middleware that no longer exists, so Traefik rejects them (404) until sign-in is removed from the app or turned back on. Scripts and monitors that call an app need a route without sign-in.
+- Turning sign-in off (removing `sso` from `COMPOSE_PROFILES`) while apps still require it does not open them: their routers point at a middleware that no longer exists, so Traefik rejects them (404) until sign-in is removed from the app or turned back on. Scripts and monitors that call an app need a route without sign-in.
+- `SSO_ENABLED=false` keeps sign-in off in the manager even with the profile on; `SSO_ENABLED=true` turns it on without starting oauth2-proxy here, for an oauth2-proxy you run elsewhere (set `SSO_AUTH_URL` to it).
+- Before this, oauth2-proxy was a separate stack (`oauth2-proxy/docker-compose.yml`). If you deployed it, remove that stack before redeploying this one (both use the container name `oauth2-proxy`), and delete any `auth` app you added by hand: the manager now owns that name.
 - The manager's own GUI is not behind Google sign-in; it keeps the LAN allow-list and its own optional [login](#login).
 
 ## Renewal

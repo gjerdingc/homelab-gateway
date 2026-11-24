@@ -16,6 +16,9 @@ def in_domains(name, domains):
     return any(name == d or name.endswith("." + d) for d in domains)
 
 
+EMAIL_RE = re.compile(r"^[^@\s,]+@[a-z0-9.-]+\.[a-z]{2,}$")
+
+
 def _split(value):
     return [p.strip() for p in re.split(r"[,\s]+", value or "") if p.strip()]
 
@@ -46,9 +49,16 @@ class Config:
         # docker-compose.yml). The manager only needs to know it is set up, so the form can offer it.
         self.letsencrypt_enabled = _bool(env.get("LETSENCRYPT_ENABLED"), False)
         self.letsencrypt_resolver = env.get("LETSENCRYPT_RESOLVER", "letsencrypt").strip() or "letsencrypt"
-        # Google sign-in through oauth2-proxy (oauth2-proxy/docker-compose.yml). Traefik asks it about
-        # every request to an app that requires sign-in (ForwardAuth). Its cookie only covers SSO_DOMAIN.
-        self.sso_enabled = _bool(env.get("SSO_ENABLED"), False)
+        # Google sign-in through oauth2-proxy (the "sso" profile in docker-compose.yml). Traefik asks it
+        # about every request to an app that requires sign-in (ForwardAuth). Its cookie only covers
+        # SSO_DOMAIN. On when the stack starts that profile (COMPOSE_PROFILES=sso), unless SSO_ENABLED
+        # says otherwise.
+        profiles = [p.lower() for p in _split(env.get("COMPOSE_PROFILES"))]
+        self.sso_enabled = _bool(env.get("SSO_ENABLED"), "sso" in profiles)
+        # Who may sign in. The manager writes them to oauth2-proxy's emails.txt at startup; when empty,
+        # a hand-written emails.txt is left alone.
+        self.sso_allowed_emails = list(dict.fromkeys(e.lower() for e in _split(env.get("SSO_ALLOWED_EMAILS"))))
+        self.sso_dir = env.get("TM_SSO_DIR", "/oauth2-proxy")
         self.sso_domain = env.get("SSO_DOMAIN", "").strip().lower().lstrip(".").rstrip(".")
         self.sso_auth_url = env.get("SSO_AUTH_URL", "http://oauth2-proxy:4180").strip().rstrip("/")
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
@@ -141,9 +151,24 @@ class Config:
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is not a valid domain")
             elif self.allowed_domains and not in_domains(self.sso_domain, self.allowed_domains):
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is outside ALLOWED_DOMAINS")
+            bad = [m for m in self.sso_allowed_emails if not EMAIL_RE.match(m)]
+            if bad:
+                e.append(f"SSO_ALLOWED_EMAILS: {', '.join(repr(m) for m in bad)} is not an email address")
+            elif not self.sso_allowed_emails and not os.path.isfile(self.sso_emails_path):
+                self.warnings.append("Google sign-in is on but nobody may sign in yet: set SSO_ALLOWED_EMAILS "
+                                     "in the stack")
             parsed = urlparse(self.sso_auth_url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.path not in ("", "/"):
                 e.append(f"SSO_AUTH_URL {self.sso_auth_url!r} must look like http://oauth2-proxy:4180")
+
+    @property
+    def sso_auth_host(self):
+        """The sign-in route: Google sends the browser back to https://<this>/oauth2/callback."""
+        return f"auth.{self.sso_domain}" if self.sso_domain else ""
+
+    @property
+    def sso_emails_path(self):
+        return os.path.join(self.sso_dir, "emails.txt")
 
     @property
     def ca_cert_path(self):

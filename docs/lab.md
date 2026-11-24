@@ -42,7 +42,7 @@ These became variables when the stack was made portable. Without them the stack 
 |---|---|---|
 | `PKI_DIR` | `/home/christian/pki` | The CA is looked for in `/opt/traefik/pki`; the manager finds none, refuses to make a new one (apps hold certificates) and shows a red banner |
 | `TZ` | `Europe/Oslo` | Logs and daily usage totals use UTC |
-| `SSO_DOMAIN` (oauth2-proxy stack) | `oplassen.net` | The oauth2-proxy stack refuses to deploy; it no longer has a default |
+| `SSO_DOMAIN` | `oplassen.net` | Only needed with `COMPOSE_PROFILES=sso`; without it sign-in stays off |
 
 `PI_IP` keeps working; it can be renamed to `HOST_IP` at any time.
 

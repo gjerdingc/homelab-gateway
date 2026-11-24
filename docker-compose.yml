@@ -128,9 +128,13 @@ services:
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
       # Offer Let's Encrypt on the app form. Set ACME_DNS_PROVIDER and its credentials first.
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
-      # Offer "Require Google sign-in" on the app form. Deploy oauth2-proxy/docker-compose.yml first.
-      SSO_ENABLED: ${SSO_ENABLED:-false}
+      # Google sign-in: on when COMPOSE_PROFILES includes sso (which also starts oauth2-proxy below).
+      # The manager then offers "Require Google sign-in" on the app form, routes auth.<SSO_DOMAIN> to
+      # oauth2-proxy and writes SSO_ALLOWED_EMAILS to its allow-list. SSO_ENABLED=false forces it off.
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      SSO_ENABLED: ${SSO_ENABLED:-}
       SSO_DOMAIN: ${SSO_DOMAIN:-}
+      SSO_ALLOWED_EMAILS: ${SSO_ALLOWED_EMAILS:-}
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
     volumes:
       - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic
@@ -142,8 +146,49 @@ services:
       # first start; it never overwrites a CA that is there. Keep no root key in these folders.
       - ${PKI_DIR:-/opt/traefik/pki}/intermediate:/pki/intermediate
       - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root
+      # oauth2-proxy's allow-list (emails.txt), written from SSO_ALLOWED_EMAILS
+      - ${TM_ROOT:-/opt/traefik}/oauth2-proxy:/oauth2-proxy
     networks: [proxy]
     depends_on: [traefik]
+
+  # Google sign-in for the apps you pick. Only started with COMPOSE_PROFILES=sso; needs
+  # SSO_DOMAIN, SSO_ALLOWED_EMAILS and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).
+  # No host port: Traefik reaches it as http://oauth2-proxy:4180, browsers through auth.<SSO_DOMAIN>.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+    container_name: oauth2-proxy
+    profiles: [sso]
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+      OAUTH2_PROXY_PROVIDER: google
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      # 32 random bytes: openssl rand -base64 32 | tr -- '+/' '-_'
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:-}
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REDIRECT_URL: https://auth.${SSO_DOMAIN:-}/oauth2/callback
+      # One sign-in for every app under the domain
+      OAUTH2_PROXY_COOKIE_DOMAINS: .${SSO_DOMAIN:-}
+      OAUTH2_PROXY_WHITELIST_DOMAINS: .${SSO_DOMAIN:-}
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      OAUTH2_PROXY_COOKIE_EXPIRE: 168h
+      OAUTH2_PROXY_COOKIE_REFRESH: 1h
+      # Behind Traefik: trust X-Forwarded-* and answer ForwardAuth with identity headers
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_UPSTREAMS: static://202
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_SCOPE: openid email profile
+      # Only these addresses may sign in. The manager writes the file from SSO_ALLOWED_EMAILS.
+      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
+    volumes:
+      # The folder, not the file: Docker would create a directory if the file were not there yet.
+      # Until the manager has written it, oauth2-proxy exits and is restarted.
+      - ${TM_ROOT:-/opt/traefik}/oauth2-proxy:/etc/oauth2-proxy:ro
+    networks: [proxy]
+    depends_on: [traefik-manager]
 
 networks:
   proxy:

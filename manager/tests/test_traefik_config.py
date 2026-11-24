@@ -201,3 +201,29 @@ def test_host_ip_falls_back_to_the_old_pi_ip_name():
     assert core_config(HOST_IP="10.0.0.5", PI_IP="10.0.0.6").host_ip == "10.0.0.5"
     assert any(e.startswith("HOST_IP ") for e in core_config(HOST_IP="nope").errors)
     assert any(e.startswith("PI_IP ") for e in core_config(PI_IP="nope").errors)
+
+
+def test_compose_profile_turns_sign_in_on():
+    assert core_config(COMPOSE_PROFILES="sso", SSO_DOMAIN="gjecorp.net").sso_enabled
+    assert core_config(COMPOSE_PROFILES="other, SSO", SSO_DOMAIN="gjecorp.net").sso_enabled
+    assert not core_config(COMPOSE_PROFILES="other").sso_enabled
+    # SSO_ENABLED still wins, either way.
+    assert not core_config(COMPOSE_PROFILES="sso", SSO_ENABLED="false").sso_enabled
+    assert core_config(SSO_ENABLED="true", SSO_DOMAIN="gjecorp.net").sso_enabled
+
+
+def test_core_routes_the_sign_in_host_to_oauth2_proxy():
+    assert "sso-signin" not in yaml.safe_load(tc.render_core(core_config(), None))["http"]["routers"]
+    http = yaml.safe_load(tc.render_core(core_config(**SSO_ENV), None))["http"]
+    assert http["routers"]["sso-signin"] == {
+        "rule": "Host(`auth.oplassen.net`)", "entryPoints": ["websecure"], "service": "sso-signin",
+        "middlewares": ["secure-headers@file"], "tls": {}}
+    assert http["services"]["sso-signin"] == {"loadBalancer": {"servers": [{"url": "http://oauth2-proxy:4180"}]}}
+
+
+def test_allowed_emails_are_cleaned_and_checked():
+    c = core_config(**SSO_ENV, SSO_ALLOWED_EMAILS="Me@Gmail.com, you@oplassen.net\nme@gmail.com")
+    assert c.ok, c.errors
+    assert c.sso_allowed_emails == ["me@gmail.com", "you@oplassen.net"]
+    assert any("not an email address" in e for e in core_config(**SSO_ENV, SSO_ALLOWED_EMAILS="nope").errors)
+    assert any("nobody may sign in" in w for w in core_config(**SSO_ENV, TM_SSO_DIR="/nonexistent").warnings)

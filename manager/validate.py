@@ -11,7 +11,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 # internal: a container on the proxy network, reached by container name.
 # external: anything else Traefik can reach: another host, or a port published on this host.
 KINDS = ("internal", "external")
-RESERVED_SLUGS = {"_manager", "core", "manual"}
+RESERVED_SLUGS = {"_manager", "core", "manual", "sso-signin"}
 # Optional start path: requests for "/" are redirected here (e.g. Pi-hole's "/admin/").
 # A strict character set keeps it safe to place in a Traefik regex replacement.
 START_PATH_RE = re.compile(r"^/[A-Za-z0-9._~/-]{0,199}$")

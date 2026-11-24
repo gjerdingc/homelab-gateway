@@ -64,7 +64,7 @@ def write_pki(directory, key_format="pkcs8", intermediate_days=3650, name_constr
 def make_env(tmp_path, pki_paths, **overrides):
     env = {
         "TM_DYNAMIC_DIR": str(tmp_path / "dynamic"), "TM_CERTS_DIR": str(tmp_path / "certs"),
-        "TM_DATA_DIR": str(tmp_path / "data"), "TM_PKI_DIR": os.path.dirname(pki_paths["cert"]),
+        "TM_DATA_DIR": str(tmp_path / "data"), "TM_SSO_DIR": str(tmp_path / "oauth2-proxy"), "TM_PKI_DIR": os.path.dirname(pki_paths["cert"]),
         "TM_ROOT_CA_PATH": pki_paths["root"],
         "MANAGER_FQDN": "traefik.gjecorp.net", "ALLOWED_DOMAINS": "gjecorp.net", "LAN_CIDRS": "10.0.0.0/24",
         "CA_CERT_FILE": "intermediate_ca.crt", "CA_KEY_FILE": "intermediate_ca_key", "CA_KEY_PASSWORD": PASSWORD,

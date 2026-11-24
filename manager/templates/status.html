@@ -53,7 +53,9 @@
   <dl class="kv">
     <dt>Status</dt><dd>{% if config.sso_enabled %}{{ status_badge('ok') }}Available on the app form{% else %}<span class="badge badge-muted">off</span>Set <span class="mono">SSO_ENABLED=true</span> and <span class="mono">SSO_DOMAIN</span> to offer it{% endif %}</dd>
     {% if config.sso_enabled %}<dt>Domain</dt><dd class="mono">{{ config.sso_domain }}</dd>
-    <dt>oauth2-proxy</dt><dd class="mono">{{ config.sso_auth_url }}</dd>{% endif %}
+    <dt>oauth2-proxy</dt><dd class="mono">{{ config.sso_auth_url }}</dd>
+    <dt>Sign-in page</dt><dd class="mono">https://{{ config.sso_auth_host }}</dd>
+    <dt>Who may sign in</dt><dd>{% if config.sso_allowed_emails %}<span class="mono">{{ config.sso_allowed_emails | join(', ') }}</span>{% else %}Not set by <span class="mono">SSO_ALLOWED_EMAILS</span>; oauth2-proxy uses <span class="mono">emails.txt</span> as it is{% endif %}</dd>{% endif %}
     <dt>Apps</dt><dd>{% for a in sso_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}</dd>
   </dl>
   <p class="help">Traefik asks oauth2-proxy about every request to these apps. Who may sign in is decided by oauth2-proxy's own allow-list, not here.</p>

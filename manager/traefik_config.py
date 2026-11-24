@@ -25,6 +25,8 @@ DEFAULT_RESOLVER = "letsencrypt"
 # the browser to Google. Defined in _core.yml only when SSO_ENABLED is on; an app that still asks for
 # it after that is switched off gets a router error from Traefik (closed), not an open route.
 SSO_MIDDLEWARE = "sso"
+# Router and service for auth.<SSO_DOMAIN>, where Google sends the browser back after sign-in.
+SSO_SIGNIN = "sso-signin"
 SSO_HEADERS = ["X-Auth-Request-User", "X-Auth-Request-Email"]
 SSO_STRIPPED = [*SSO_HEADERS, "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username",
                 "X-Auth-Request-Access-Token", "X-Forwarded-User", "X-Forwarded-Email"]
@@ -213,11 +215,25 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
             "tls": {},
         }
 
+    services = {"traefik-manager": {"loadBalancer": {"servers": [{"url": config.manager_backend}]}}}
+    if config.sso_enabled and config.sso_auth_host:
+        # Not LAN-only: apps open to any client need their visitors to reach the sign-in too.
+        # oauth2-proxy itself only lets through what Google vouched for. Served with the manager's
+        # certificate, which carries this name as well.
+        routers[SSO_SIGNIN] = {
+            "rule": f"Host(`{config.sso_auth_host}`)",
+            "entryPoints": ["websecure"],
+            "service": SSO_SIGNIN,
+            "middlewares": ["secure-headers@file"],
+            "tls": {},
+        }
+        services[SSO_SIGNIN] = {"loadBalancer": {"servers": [{"url": config.sso_auth_url}]}}
+
     data = {
         "http": {
             "middlewares": middlewares,
             "routers": routers,
-            "services": {"traefik-manager": {"loadBalancer": {"servers": [{"url": config.manager_backend}]}}},
+            "services": services,
         },
         "tls": {"options": {"default": {"minVersion": "VersionTLS12", "sniStrict": False}}},
     }

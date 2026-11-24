@@ -239,6 +239,9 @@ def test_sign_in_option_on_form_detail_list_and_status(client):
     page = client.get("/apps/grafana").get_data(as_text=True)
     assert "sso@file" in page and ">Google</span>" in page
     assert ">sign-in</span>" in client.get("/").get_data(as_text=True)
-    assert 'href="/apps/grafana">grafana</a>' in client.get("/status").get_data(as_text=True)
+    mgr.config.sso_allowed_emails = ["me@gmail.com"]
+    status = client.get("/status").get_data(as_text=True)
+    assert 'href="/apps/grafana">grafana</a>' in status
+    assert "https://auth.gjecorp.net" in status and "me@gmail.com" in status
     page = client.get("/apps/grafana/edit").get_data(as_text=True)
     assert 'name="require_sign_in" checked' in page

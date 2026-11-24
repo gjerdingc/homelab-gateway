@@ -100,7 +100,7 @@ Set these in the installer's `.env` (`/opt/homelab-gateway/.env`, then `docker c
 |---|---|---|
 | `BASIC_AUTH_USERS` | `me:$2y$05$…` | Sets the GUI login from the stack instead of **Settings** (`htpasswd -nB me`) |
 | `RESET_LOGIN` | `true` | Forgot the password: removes the login at startup. Remove it again afterwards |
-| `COMPOSE_PROFILES`, `SSO_DOMAIN`, `SSO_ALLOWED_EMAILS` | `sso`, `lab.example.com`, `you@gmail.com` | Google sign-in for apps you pick: starts oauth2-proxy in this stack. Also needs `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_COOKIE_SECRET` ([setup](docs/guide.md#google-sign-in)) |
+| `COMPOSE_PROFILES`, `SSO_DOMAIN` | `sso`, `lab.example.com` | Google sign-in for apps you pick: starts oauth2-proxy in this stack. Also needs `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_COOKIE_SECRET`; who may sign in is set under **Settings** ([setup](docs/guide.md#google-sign-in)) |
 
 ## Let's Encrypt
 

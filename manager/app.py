@@ -144,6 +144,9 @@ def create_app(env=None, start_background=True):
             banners.append(("warn", "The intermediate CA expires within 60 days. Plan a replacement."))
         for w in config.warnings:
             banners.append(("warn", w))
+        if config.sso_enabled and config.ok and not manager.sso_allowed_emails():
+            banners.append(("warn", "Google sign-in is on, but nobody may sign in yet. "
+                                    "Add Google accounts under Settings."))
         if config.reset_login:
             banners.append(("warn", "RESET_LOGIN is set, so any login set on Settings is removed at every start. "
                                     "Remove the variable from the stack once you have set a new login."))
@@ -404,18 +407,43 @@ def create_app(env=None, start_background=True):
         return render_template("manager_access.html", v=values, errors=errors, client_ip=request.headers.get("X-Real-Ip"),
                                list_options=list_options()), 400 if errors else 200
 
+    def render_settings(errors=None, username=None, emails=None, status=200):
+        return render_template("settings.html", login=login, errors=errors or {},
+                               username=(login.usernames() or [""])[0] if username is None else username,
+                               emails="\n".join(manager.sso_allowed_emails()) if emails is None else emails,
+                               ), status
+
     @app.get("/settings")
     def settings():
-        return render_template("settings.html", login=login, errors={},
-                               username=(login.usernames() or [""])[0])
+        return render_settings()
+
+    @app.post("/settings/sign-in")
+    def settings_sign_in():
+        if not config.sso_enabled:
+            abort(404)
+        try:
+            added, removed = manager.set_sso_allowed_emails(request.form.get("emails", ""))
+        except ApplyError as exc:
+            if exc.field_errors:
+                flash("Please fix the highlighted field.", "error")
+                return render_settings(exc.field_errors, emails=request.form.get("emails", ""), status=400)
+            flash(str(exc), "error")
+            return redirect(url_for("settings"))
+        if added or removed:
+            flash("Who may sign in is saved"
+                  + (f": added {', '.join(added)}" if added else "")
+                  + (f"{';' if added else ':'} removed {', '.join(removed)}" if removed else "")
+                  + ". oauth2-proxy picks it up by itself.", "success")
+        else:
+            flash("Nothing changed.", "success")
+        return redirect(url_for("settings"))
 
     @app.post("/settings/login")
     def settings_login():
         try:
             username, password = auth.validate(request.form)
         except ValueError as exc:
-            return render_template("settings.html", login=login, errors=exc.args[0],
-                                   username=request.form.get("username", "")), 400
+            return render_settings(exc.args[0], username=request.form.get("username", ""), status=400)
         was_on = login.enabled
         try:
             result = manager.set_login([f"{username}:{auth.hash_password(password)}"],
@@ -457,7 +485,7 @@ def create_app(env=None, start_background=True):
             version, api_error = None, describe(exc)
         return render_template("status.html", login=login, ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
                                version=version, api_error=api_error, renewer=renewer, config=config,
-                               le_apps=manager.letsencrypt_apps(), sso_apps=manager.sign_in_apps(),
+                               le_apps=manager.letsencrypt_apps(), sso_apps=manager.sign_in_apps(), sso_emails=manager.sso_allowed_emails(),
                                manual=manager.manual_files(), now=pki.iso(pki.utcnow()))
 
     @app.post("/status/regenerate")

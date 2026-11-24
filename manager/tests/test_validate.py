@@ -228,3 +228,12 @@ def test_oauth2_proxy_route_cannot_require_sign_in(backend, auth_url):
     assert "oauth2-proxy route itself" in errors["require_sign_in"]
     _, errors = validate_app({**SIGN_IN, "backend_url": "http://oauth2-proxy:8080"}, [], **SSO)
     assert not errors
+
+
+def test_emails_are_cleaned_and_checked():
+    from validate import validate_emails
+    assert validate_emails("Me@Gmail.com, you@oplassen.net\nme@gmail.com\n\n") == (
+        ["me@gmail.com", "you@oplassen.net"], None)
+    assert validate_emails("") == ([], None)
+    _, error = validate_emails("me@gmail.com nope")
+    assert error == "Not an email address: nope"

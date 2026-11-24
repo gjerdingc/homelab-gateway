@@ -156,6 +156,20 @@ def validate_members(slugs, existing_apps):
     return [s for s in slugs if s in known], ("No app named " + ", ".join(repr(s) for s in unknown))
 
 
+EMAIL_RE = re.compile(r"^[^@\s,]+@[a-z0-9.-]+\.[a-z]{2,}$")
+
+
+def validate_emails(text):
+    """Google accounts for the sign-in allow-list: one per line or comma-separated.
+
+    Returns (emails, error): lowercased, without duplicates, in the order given."""
+    emails = list(dict.fromkeys(e.lower() for e in re.split(r"[,\s]+", text or "") if e))
+    bad = [e for e in emails if not EMAIL_RE.match(e)]
+    if bad:
+        return emails, f"Not an email address: {', '.join(bad)}"
+    return emails, None
+
+
 def _same_endpoint(a, b):
     """True when two URLs point at the same host and port."""
     pa, pb = urlparse(a), urlparse(b)

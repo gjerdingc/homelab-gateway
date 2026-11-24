@@ -580,20 +580,30 @@ def test_turning_sign_in_on_later_reissues_the_manager_cert(manager):
     assert manager.ensure_manager_cert() is None  # nothing to do the second time
 
 
-def test_startup_writes_the_allow_list(sso_manager):
+def test_allow_list_is_emails_txt(sso_manager):
     m = sso_manager
     path = m.config.sso_emails_path
-    assert not os.path.exists(path)  # SSO_ALLOWED_EMAILS empty: left alone
-    m.config.sso_allowed_emails = ["me@gmail.com", "you@oplassen.net"]
-    m.startup()
+    # Startup made an empty file, so oauth2-proxy can start; nobody may sign in yet.
+    assert open(path).read() == "" and m.sso_allowed_emails() == []
+    assert m.set_sso_allowed_emails("Me@gmail.com\nyou@oplassen.net") == (["me@gmail.com", "you@oplassen.net"], [])
     assert open(path).read() == "me@gmail.com\nyou@oplassen.net\n"
     assert oct(os.stat(path).st_mode & 0o777) == "0o644"
-    assert m.write_sso_allow_list() is False  # unchanged: not rewritten
-    # A hand-kept file survives a deploy without SSO_ALLOWED_EMAILS.
-    open(path, "w").write("hand@kept.net\n")
-    m.config.sso_allowed_emails = []
+    assert m.set_sso_allowed_emails("you@oplassen.net, new@gmail.com") == (["new@gmail.com"], ["me@gmail.com"])
+    # A restart keeps the list.
     m.startup()
-    assert open(path).read() == "hand@kept.net\n"
+    assert m.sso_allowed_emails() == ["you@oplassen.net", "new@gmail.com"]
+    # Hand edits on the host show up, comments and blank lines ignored.
+    open(path, "w").write("# family\nHand@Kept.net\n\n")
+    assert m.sso_allowed_emails() == ["hand@kept.net"]
+    with pytest.raises(ApplyError) as exc:
+        m.set_sso_allowed_emails("not-an-address")
+    assert "emails" in exc.value.field_errors and m.sso_allowed_emails() == ["hand@kept.net"]
+
+
+def test_no_allow_list_file_without_sign_in(manager):
+    manager.startup()
+    assert not os.path.exists(manager.config.sso_emails_path)
+
 
 
 def test_lets_encrypt_sign_in_host_is_left_off_the_manager_cert(sso_manager):

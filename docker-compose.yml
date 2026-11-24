@@ -130,11 +130,10 @@ services:
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
       # Google sign-in: on when COMPOSE_PROFILES includes sso (which also starts oauth2-proxy below).
       # The manager then offers "Require Google sign-in" on the app form, routes auth.<SSO_DOMAIN> to
-      # oauth2-proxy and writes SSO_ALLOWED_EMAILS to its allow-list. SSO_ENABLED=false forces it off.
+      # oauth2-proxy and keeps its allow-list (Settings page). SSO_ENABLED=false forces it off.
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
       SSO_ENABLED: ${SSO_ENABLED:-}
       SSO_DOMAIN: ${SSO_DOMAIN:-}
-      SSO_ALLOWED_EMAILS: ${SSO_ALLOWED_EMAILS:-}
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
       # Certificate for auth.<SSO_DOMAIN>: internal (default) or letsencrypt (needs LETSENCRYPT_ENABLED)
       SSO_AUTH_CERT: ${SSO_AUTH_CERT:-internal}
@@ -148,13 +147,13 @@ services:
       # first start; it never overwrites a CA that is there. Keep no root key in these folders.
       - ${PKI_DIR:-/opt/traefik/pki}/intermediate:/pki/intermediate
       - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root
-      # oauth2-proxy's allow-list (emails.txt), written from SSO_ALLOWED_EMAILS
+      # oauth2-proxy's allow-list (emails.txt), edited on the Settings page
       - ${TM_ROOT:-/opt/traefik}/oauth2-proxy:/oauth2-proxy
     networks: [proxy]
     depends_on: [traefik]
 
   # Google sign-in for the apps you pick. Only started with COMPOSE_PROFILES=sso; needs
-  # SSO_DOMAIN, SSO_ALLOWED_EMAILS and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).
+  # SSO_DOMAIN and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).
   # No host port: Traefik reaches it as http://oauth2-proxy:4180, browsers through auth.<SSO_DOMAIN>.
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
@@ -183,7 +182,7 @@ services:
       OAUTH2_PROXY_UPSTREAMS: static://202
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
       OAUTH2_PROXY_SCOPE: openid email profile
-      # Only these addresses may sign in. The manager writes the file from SSO_ALLOWED_EMAILS.
+      # Only these addresses may sign in: the list on the manager's Settings page.
       OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
     volumes:
       # The folder, not the file: Docker would create a directory if the file were not there yet.

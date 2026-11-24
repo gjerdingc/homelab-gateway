@@ -239,9 +239,27 @@ def test_sign_in_option_on_form_detail_list_and_status(client):
     page = client.get("/apps/grafana").get_data(as_text=True)
     assert "sso@file" in page and ">Google</span>" in page
     assert ">sign-in</span>" in client.get("/").get_data(as_text=True)
-    mgr.config.sso_allowed_emails = ["me@gmail.com"]
     status = client.get("/status").get_data(as_text=True)
     assert 'href="/apps/grafana">grafana</a>' in status
-    assert "https://auth.gjecorp.net" in status and "me@gmail.com" in status
+    assert "https://auth.gjecorp.net" in status and "Nobody yet" in status
+    assert "nobody may sign in yet" in status  # banner
+
+    # Who may sign in is edited on Settings.
+    page = client.get("/settings").get_data(as_text=True)
+    assert 'name="emails"' in page
+    r = client.post("/settings/sign-in", data={"emails": "me@gmail.com", "csrf_token": token(client, "/settings")})
+    assert r.status_code == 302
+    assert "me@gmail.com" in client.get("/settings").get_data(as_text=True)
+    status = client.get("/status").get_data(as_text=True)
+    assert "me@gmail.com" in status and "nobody may sign in yet" not in status
+    r = client.post("/settings/sign-in", data={"emails": "nope", "csrf_token": token(client, "/settings")})
+    assert r.status_code == 400 and "Not an email address: nope" in r.get_data(as_text=True)
     page = client.get("/apps/grafana/edit").get_data(as_text=True)
     assert 'name="require_sign_in" checked' in page
+
+
+def test_sign_in_list_is_not_offered_when_sign_in_is_off(client):
+    client.tm["manager"].startup()
+    assert "Google sign-in is off" in client.get("/settings").get_data(as_text=True)
+    r = client.post("/settings/sign-in", data={"emails": "me@gmail.com", "csrf_token": token(client, "/settings")})
+    assert r.status_code == 404

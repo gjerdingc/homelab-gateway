@@ -52,4 +52,22 @@
   {% endif %}
   {% endif %}
 </section>
+<section class="card" id="sign-in">
+  <h2>Google sign-in: who may sign in</h2>
+  {% if sso_enabled %}
+  <form method="post" action="{{ url_for('settings_sign_in') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field{% if errors.get('emails') %} has-error{% endif %}">
+      <label for="emails">Google accounts</label>
+      <textarea id="emails" name="emails" rows="6" class="mono" autocapitalize="none" spellcheck="false" placeholder="you@gmail.com&#10;partner@gmail.com">{{ emails }}</textarea>
+      {% if errors.get('emails') %}<p class="error">{{ errors['emails'] }}</p>{% endif %}
+      <p class="help">One per line or comma-separated. Everyone listed can open every app that requires sign-in. Empty means nobody can.</p>
+    </div>
+    <div class="actions"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+  <p class="help">Saved to oauth2-proxy's allow-list, <span class="mono">&lt;TM_ROOT&gt;/oauth2-proxy/emails.txt</span> on the host. oauth2-proxy picks up a change by itself; someone removed here is turned away at their next request. While the Google consent screen is in <em>Testing</em>, Google also needs each account under its test users.</p>
+  {% else %}
+  <p class="help">Google sign-in is off. Turn it on with <span class="mono">COMPOSE_PROFILES=sso</span> in the stack (see Google sign-in in docs/guide.md); the list of who may sign in is kept here.</p>
+  {% endif %}
+</section>
 {% endblock %}

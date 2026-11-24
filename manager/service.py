@@ -16,7 +16,7 @@ import yaml
 import pki
 import store as st
 import traefik_config as tc
-from validate import admits, validate_access, validate_app, validate_ip_list, validate_members
+from validate import admits, validate_access, validate_app, validate_emails, validate_ip_list, validate_members
 
 MANAGER_SLUG = tc.RESERVED
 # The router the bootstrap/renewal of the manager's own cert waits for.
@@ -616,7 +616,7 @@ class Manager:
     def startup(self):
         """Run once at boot. Failures are kept for the GUI banner, never raised."""
         if self.config.ok:
-            self.write_sso_allow_list()
+            self.ensure_sso_allow_list()
         if not self.ready:
             self.actions.write(self.problem(), "ERROR")
             return
@@ -627,28 +627,53 @@ class Manager:
             self.startup_error = str(exc)
             self.actions.write(f"startup failed: {exc}", "ERROR")
 
-    def write_sso_allow_list(self):
-        """Write SSO_ALLOWED_EMAILS to oauth2-proxy's emails.txt (one address per line).
+    # ---- Google sign-in allow-list ------------------------------------------------
+    # oauth2-proxy's emails.txt is the list itself: the Settings page reads and writes it, and
+    # oauth2-proxy picks up a change on its own.
 
-        Left alone when SSO_ALLOWED_EMAILS is empty, so a hand-kept file keeps working."""
-        c = self.config
-        if not (c.sso_enabled and c.sso_allowed_emails):
-            return False
-        text = "".join(f"{m}\n" for m in c.sso_allowed_emails)
-        path = c.sso_emails_path
+    def sso_allowed_emails(self):
+        """Who may sign in, read from emails.txt. [] when it is missing or unreadable."""
         try:
-            if st.read_text(path) == text:
-                return False
-            os.makedirs(c.sso_dir, exist_ok=True)
-            tmp = f"{path}.tmp"
-            with open(tmp, "w") as f:
-                f.write(text)
-            os.chmod(tmp, 0o644)  # oauth2-proxy runs as a non-root user
-            os.replace(tmp, path)
+            text = st.read_text(self.config.sso_emails_path) or ""
+        except OSError:
+            return []
+        return [l.strip().lower() for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+
+    def set_sso_allowed_emails(self, text):
+        """Replace the allow-list. Raises ApplyError with a field error for bad addresses."""
+        emails, error = validate_emails(text)
+        if error:
+            raise ApplyError(error, {"emails": error})
+        with self.lock:
+            before = self.sso_allowed_emails()
+            self._write_sso_emails(emails)
+        added = [e for e in emails if e not in before]
+        removed = [e for e in before if e not in emails]
+        parts = ([f"added {', '.join(added)}"] if added else []) + ([f"removed {', '.join(removed)}"] if removed else [])
+        self.actions.write(f"sign-in allow-list: {'; '.join(parts) or 'unchanged'}")
+        return added, removed
+
+    def _write_sso_emails(self, emails):
+        path = self.config.sso_emails_path
+        try:
+            os.makedirs(self.config.sso_dir, exist_ok=True)
+            # Rewritten in place, not replaced, so oauth2-proxy's watch on the file sees the change.
+            with open(path, "w") as f:
+                f.write("".join(f"{m}\n" for m in emails))
+            os.chmod(path, 0o644)  # oauth2-proxy runs as a non-root user
         except OSError as exc:
-            self.actions.write(f"could not write the sign-in allow-list {path}: {exc}", "ERROR")
+            raise ApplyError(f"Could not write the sign-in allow-list {path}: {exc}")
+
+    def ensure_sso_allow_list(self):
+        """An empty emails.txt on first start, so oauth2-proxy can start (and let nobody in)."""
+        if not self.config.sso_enabled or os.path.exists(self.config.sso_emails_path):
             return False
-        self.actions.write(f"sign-in allow-list: {len(c.sso_allowed_emails)} address(es)")
+        try:
+            self._write_sso_emails([])
+        except ApplyError as exc:
+            self.actions.write(str(exc), "ERROR")
+            return False
+        self.actions.write("created an empty sign-in allow-list; add Google accounts under Settings")
         return True
 
     def renew_due(self):

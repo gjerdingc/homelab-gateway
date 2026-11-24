@@ -16,9 +16,6 @@ def in_domains(name, domains):
     return any(name == d or name.endswith("." + d) for d in domains)
 
 
-EMAIL_RE = re.compile(r"^[^@\s,]+@[a-z0-9.-]+\.[a-z]{2,}$")
-
-
 def _split(value):
     return [p.strip() for p in re.split(r"[,\s]+", value or "") if p.strip()]
 
@@ -55,9 +52,7 @@ class Config:
         # says otherwise.
         profiles = [p.lower() for p in _split(env.get("COMPOSE_PROFILES"))]
         self.sso_enabled = _bool(env.get("SSO_ENABLED"), "sso" in profiles)
-        # Who may sign in. The manager writes them to oauth2-proxy's emails.txt at startup; when empty,
-        # a hand-written emails.txt is left alone.
-        self.sso_allowed_emails = list(dict.fromkeys(e.lower() for e in _split(env.get("SSO_ALLOWED_EMAILS"))))
+        # Folder holding oauth2-proxy's emails.txt: who may sign in, edited on the Settings page.
         self.sso_dir = env.get("TM_SSO_DIR", "/oauth2-proxy")
         # Certificate for auth.<SSO_DOMAIN>: the internal CA (on the manager's own certificate), or
         # Let's Encrypt, so devices without the root certificate can sign in too.
@@ -154,12 +149,6 @@ class Config:
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is not a valid domain")
             elif self.allowed_domains and not in_domains(self.sso_domain, self.allowed_domains):
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is outside ALLOWED_DOMAINS")
-            bad = [m for m in self.sso_allowed_emails if not EMAIL_RE.match(m)]
-            if bad:
-                e.append(f"SSO_ALLOWED_EMAILS: {', '.join(repr(m) for m in bad)} is not an email address")
-            elif not self.sso_allowed_emails and not os.path.isfile(self.sso_emails_path):
-                self.warnings.append("Google sign-in is on but nobody may sign in yet: set SSO_ALLOWED_EMAILS "
-                                     "in the stack")
             if self.sso_auth_cert not in ("internal", "letsencrypt"):
                 e.append(f"SSO_AUTH_CERT must be internal or letsencrypt, got {self.sso_auth_cert!r}")
             elif self.sso_auth_cert == "letsencrypt" and not self.letsencrypt_enabled:

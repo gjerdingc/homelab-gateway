@@ -221,13 +221,6 @@ def test_core_routes_the_sign_in_host_to_oauth2_proxy():
     assert http["services"]["sso-signin"] == {"loadBalancer": {"servers": [{"url": "http://oauth2-proxy:4180"}]}}
 
 
-def test_allowed_emails_are_cleaned_and_checked():
-    c = core_config(**SSO_ENV, SSO_ALLOWED_EMAILS="Me@Gmail.com, you@oplassen.net\nme@gmail.com")
-    assert c.ok, c.errors
-    assert c.sso_allowed_emails == ["me@gmail.com", "you@oplassen.net"]
-    assert any("not an email address" in e for e in core_config(**SSO_ENV, SSO_ALLOWED_EMAILS="nope").errors)
-    assert any("nobody may sign in" in w for w in core_config(**SSO_ENV, TM_SSO_DIR="/nonexistent").warnings)
-
 
 def test_sign_in_host_can_use_lets_encrypt():
     config = core_config(**SSO_ENV, SSO_AUTH_CERT="letsencrypt", LETSENCRYPT_ENABLED="true")

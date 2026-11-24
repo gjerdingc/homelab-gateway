@@ -4,6 +4,7 @@ Everything that changes state goes through Manager and holds the store lock, so 
 request and the renewal thread never interleave. A failed step restores the
 previous YAML and apps.yml and removes any cert files it just wrote."""
 
+import base64
 import copy
 import datetime
 import glob
@@ -43,6 +44,9 @@ class Result:
     def verified(self):
         return self.state == "enabled"
 
+
+# The user oauth2-proxy's image runs as (distroless "nonroot"), so its cookie secret can be private to it.
+OAUTH2_PROXY_UID = 65532
 
 def _names(app):
     """The cert's identity: the FQDN (it is the CN) plus the set of extra SANs."""
@@ -617,6 +621,7 @@ class Manager:
         """Run once at boot. Failures are kept for the GUI banner, never raised."""
         if self.config.ok:
             self.ensure_sso_allow_list()
+            self.ensure_sso_cookie_secret()
         if not self.ready:
             self.actions.write(self.problem(), "ERROR")
             return
@@ -674,6 +679,34 @@ class Manager:
             self.actions.write(str(exc), "ERROR")
             return False
         self.actions.write("created an empty sign-in allow-list; add Google accounts under Settings")
+        return True
+
+    def ensure_sso_cookie_secret(self):
+        """oauth2-proxy's cookie secret, made once: 32 random bytes, base64url, in cookie-secret.
+
+        Kept across restarts, so a redeploy signs nobody out. Delete the file and redeploy to sign
+        everyone out. Readable only by oauth2-proxy's user."""
+        path = self.config.sso_cookie_secret_path
+        if not self.config.sso_enabled:
+            return False
+        try:
+            if (st.read_text(path) or "").strip():
+                return False
+            os.makedirs(self.config.sso_dir, exist_ok=True)
+            secret = base64.urlsafe_b64encode(os.urandom(32)).decode()
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(secret)  # no newline: oauth2-proxy reads the file as it is
+            try:
+                os.chown(path, OAUTH2_PROXY_UID, OAUTH2_PROXY_UID)
+                os.chmod(path, 0o400)
+            except PermissionError:
+                # Not root (only outside the container): oauth2-proxy must still be able to read it.
+                os.chmod(path, 0o644)
+        except OSError as exc:
+            self.actions.write(f"could not create oauth2-proxy's cookie secret {path}: {exc}", "ERROR")
+            return False
+        self.actions.write("created oauth2-proxy's cookie secret")
         return True
 
     def renew_due(self):

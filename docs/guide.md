@@ -143,7 +143,7 @@ Installing the root certificate works for your own devices. For apps that guests
 | `TRAEFIK_API_URL` / `TRAEFIK_HTTPS_PORT` | `http://traefik:8080` / `443` | Only if you change the Traefik service |
 
 Let's Encrypt: `LETSENCRYPT_ENABLED`, `ACME_DNS_PROVIDER`, the provider's credentials, `ACME_EMAIL`, `ACME_CA_SERVER`, `ACME_DNS_RESOLVERS` (see [Let's Encrypt certificates](#lets-encrypt-certificates)).
-Google sign-in: `COMPOSE_PROFILES=sso`, `SSO_DOMAIN`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_COOKIE_SECRET` (see [Google sign-in](#google-sign-in)).
+Google sign-in: `COMPOSE_PROFILES=sso`, `SSO_DOMAIN`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET` (see [Google sign-in](#google-sign-in)).
 
 ## Updating
 
@@ -352,7 +352,6 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 | `SSO_DOMAIN` | `lab.example.com` | The domain the sign-in cookie covers. Must be in `ALLOWED_DOMAINS`; apps with sign-in must have all their names under it |
 | `OAUTH_CLIENT_ID` | From step 1 | |
 | `OAUTH_CLIENT_SECRET` | From step 1 | Never commit this |
-| `OAUTH_COOKIE_SECRET` | `openssl rand -base64 32 \| tr -- '+/' '-_'` | Never commit this |
 | `SSO_AUTH_CERT` | `internal` or `letsencrypt` | Optional, default `internal`. See below |
 
 4. **Check**: the Status page shows *Google sign-in: available*. The manager's certificate now also covers `auth.lab.example.com`, and the route to oauth2-proxy is in place; there is no app to add for it.
@@ -364,6 +363,7 @@ On the first deploy oauth2-proxy may restart once or twice: it waits for the man
 ### Good to know
 
 - **Adding or removing someone**: edit the list under **Settings** and save. No redeploy: the list is oauth2-proxy's own `<TM_ROOT>/oauth2-proxy/emails.txt`, which oauth2-proxy reloads when it changes. Someone you remove is turned away at their next request. Everyone on the list can open every app that requires sign-in.
+- **Cookie secret**: oauth2-proxy encrypts its sign-in cookie with `<TM_ROOT>/oauth2-proxy/cookie-secret`, which the manager makes on first start (32 random bytes, readable only by oauth2-proxy) and keeps, so a redeploy signs nobody out. To sign everyone out, for example if the secret may have leaked, delete the file and redeploy. An `OAUTH_COOKIE_SECRET` from earlier versions is no longer used and can be removed from the stack.
 - While the Google consent screen is in *Testing*, Google only lets in its test users, so a new person must be added there too. To skip that, publish the consent screen (*In production*): with only the `openid email profile` scopes, Google normally asks for no review. The list in Settings then decides alone.
 - An app gets the user from `X-Auth-Request-Email`. Only trust it when the app is reached through Traefik: an app with a published host port can be called around the gateway with any header.
 - Sign-in needs internet access to Google, from the browser and from this host. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.

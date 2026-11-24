@@ -172,6 +172,10 @@ class Config:
         return os.path.join(self.sso_dir, "emails.txt")
 
     @property
+    def sso_cookie_secret_path(self):
+        return os.path.join(self.sso_dir, "cookie-secret")
+
+    @property
     def ca_cert_path(self):
         return os.path.join(self.pki_dir, self.ca_cert_file)
 

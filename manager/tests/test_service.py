@@ -618,3 +618,29 @@ def test_lets_encrypt_sign_in_host_is_left_off_the_manager_cert(sso_manager):
     assert router["tls"] == {"certResolver": "letsencrypt"}
     m.renew_app("_manager")
     assert m.get("_manager")["extra_sans"] == []
+
+
+def test_cookie_secret_is_made_once_and_private(sso_manager):
+    import base64
+    import service
+    m = sso_manager
+    path = m.config.sso_cookie_secret_path
+    secret = open(path).read()
+    # 32 random bytes, base64url with padding: the form oauth2-proxy expects. No trailing newline.
+    assert len(secret) == 44 and len(base64.urlsafe_b64decode(secret)) == 32
+    st = os.stat(path)
+    assert oct(st.st_mode & 0o777) == "0o400"
+    if os.geteuid() == 0:
+        assert st.st_uid == service.OAUTH2_PROXY_UID
+    # Kept on the next start, so nobody is signed out by a redeploy.
+    m.startup()
+    assert open(path).read() == secret
+    # Deleted: a new one on the next start.
+    os.unlink(path)
+    m.startup()
+    assert os.path.isfile(path) and open(path).read() != secret
+
+
+def test_no_cookie_secret_without_sign_in(manager):
+    manager.startup()
+    assert not os.path.exists(manager.config.sso_cookie_secret_path)

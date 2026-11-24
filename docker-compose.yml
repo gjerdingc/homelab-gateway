@@ -165,8 +165,9 @@ services:
       OAUTH2_PROXY_PROVIDER: google
       OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
       OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
-      # 32 random bytes: openssl rand -base64 32 | tr -- '+/' '-_'
-      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:-}
+      # Encrypts the sign-in cookie. Made by the manager on first start and kept; delete the file and
+      # redeploy to sign everyone out.
+      OAUTH2_PROXY_COOKIE_SECRET_FILE: /etc/oauth2-proxy/cookie-secret
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
       OAUTH2_PROXY_REDIRECT_URL: https://auth.${SSO_DOMAIN:-}/oauth2/callback
       # One sign-in for every app under the domain

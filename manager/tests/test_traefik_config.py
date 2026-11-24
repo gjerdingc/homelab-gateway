@@ -172,6 +172,20 @@ def test_sign_in_app_gets_the_sso_chain_after_the_ip_checks():
     assert "sso@file" not in tc.render_app(APP)
 
 
+def test_app_for_some_people_asks_the_manager_after_sign_in():
+    app = {**APP, "require_sign_in": True, "sign_in_restricted": True, "sign_in_users": ["me@gmail.com"]}
+    data = yaml.safe_load(tc.render_app(app, access_url="http://traefik-manager:8000/"))["http"]
+    assert data["routers"]["grafana"]["middlewares"] == ["lan-only@file", "sso@file", "grafana-access@file",
+                                                         "secure-headers@file"]
+    assert data["middlewares"]["grafana-access"] == {
+        "forwardAuth": {"address": "http://traefik-manager:8000/_access/grafana"}}
+    # The people themselves are not in the Traefik config, so changing them needs no reload.
+    assert "me@gmail.com" not in tc.render_app(app, access_url="http://m:8000")
+    # Without sign-in the restriction has nothing to act on.
+    assert "grafana-access" not in tc.render_app({**app, "require_sign_in": False}, access_url="http://m:8000")
+    assert "grafana-access" not in tc.render_app({**app, "sign_in_restricted": False}, access_url="http://m:8000")
+
+
 def test_core_defines_sso_only_when_enabled():
     assert "sso" not in yaml.safe_load(tc.render_core(core_config(), None))["http"]["middlewares"]
     config = core_config(**SSO_ENV)

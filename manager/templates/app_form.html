@@ -52,6 +52,22 @@
       <p class="help">{% if sso_enabled %}Visitors sign in with Google first; only the accounts oauth2-proxy allows get through. The app receives the user in the <span class="mono">X-Auth-Request-Email</span> and <span class="mono">X-Auth-Request-User</span> headers. Works for names under <span class="mono">{{ sso_domain }}</span> only.{% else %}Not set up yet. Deploy oauth2-proxy and set <span class="mono">SSO_ENABLED</span> and <span class="mono">SSO_DOMAIN</span> in the stack, see the README.{% endif %}</p>
       {% if errors.get('require_sign_in') %}<p class="error">{{ errors['require_sign_in'] }}</p>{% endif %}
     </div>
+    {% if sso_enabled or v.sign_in_restricted %}
+    <fieldset class="field kind-choice{% if errors.get('sign_in_users') %} has-error{% endif %}">
+      <legend>Who may open it</legend>
+      <label class="kind-option"><input type="radio" name="sign_in_who" value="everyone" {% if not v.sign_in_restricted %}checked{% endif %}>
+        <span><strong>Everyone who can sign in</strong><span class="help">Every Google account on the list under <a href="{{ url_for('settings') }}#sign-in">Settings</a>.</span></span></label>
+      <label class="kind-option"><input type="radio" name="sign_in_who" value="some" {% if v.sign_in_restricted %}checked{% endif %}>
+        <span><strong>Only the people picked here</strong><span class="help">Anyone else who signs in sees a "You don't have access to this app" page. Changes to this list work at once.</span></span></label>
+      {% if people_options or v.sign_in_users %}
+      {{ picker('sign_in_users', 'People', people_options, v.sign_in_users or [], errors, 'Add a person…',
+                'Picked from the accounts under Settings. Someone removed there loses access here too (marked missing).') }}
+      {% else %}
+      <p class="help">Nobody may sign in yet. Add Google accounts under <a href="{{ url_for('settings') }}#sign-in">Settings</a> first.</p>
+      {% if errors.get('sign_in_users') %}<p class="error">{{ errors['sign_in_users'] }}</p>{% endif %}
+      {% endif %}
+    </fieldset>
+    {% endif %}
   </section>
   <section class="card">
     <h2>Options</h2>

@@ -61,7 +61,7 @@
       <label for="emails">Google accounts</label>
       <textarea id="emails" name="emails" rows="6" class="mono" autocapitalize="none" spellcheck="false" placeholder="you@gmail.com&#10;partner@gmail.com">{{ emails }}</textarea>
       {% if errors.get('emails') %}<p class="error">{{ errors['emails'] }}</p>{% endif %}
-      <p class="help">One per line or comma-separated. Everyone listed can open every app that requires sign-in. Empty means nobody can.</p>
+      <p class="help">One per line or comma-separated. Everyone listed can open every app that requires sign-in, unless the app is limited to some people (on its edit page). Empty means nobody can.</p>
     </div>
     <div class="actions"><button class="btn btn-primary" type="submit">Save</button></div>
   </form>

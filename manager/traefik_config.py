@@ -32,8 +32,20 @@ SSO_STRIPPED = [*SSO_HEADERS, "X-Auth-Request-Groups", "X-Auth-Request-Preferred
                 "X-Auth-Request-Access-Token", "X-Forwarded-User", "X-Forwarded-Email"]
 
 
+# Apps open to only some of the people who may sign in get one more forwardAuth after the sso chain:
+# the manager's /_access/<slug>, which reads X-Auth-Request-Email (set by sso-auth just before) and
+# answers 200, or 403 with the "no access" page. The per-app list lives in apps.yml, so a change to
+# it needs no new Traefik config. If the manager is down, Traefik answers 500: closed, not open.
+ACCESS_PATH = "/_access"
+
+
 def requires_sign_in(app):
     return bool(app.get("require_sign_in"))
+
+
+def restricts_sign_in(app):
+    """True when only the people picked for this app may open it."""
+    return requires_sign_in(app) and bool(app.get("sign_in_restricted"))
 
 
 def sso_middlewares(auth_url):
@@ -99,10 +111,11 @@ def effective_sources(app, ip_lists):
     return list(dict.fromkeys(out))
 
 
-def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
+def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
     """app-<slug>.yml for one app record. ip_lists maps list names to entries.
 
-    resolver is the name of Traefik's ACME cert resolver, used for Let's Encrypt apps."""
+    resolver is the name of Traefik's ACME cert resolver, used for Let's Encrypt apps.
+    access_url is the manager's address, which decides who may open an app restricted to some people."""
     slug = app["slug"]
     middlewares = []
     if app.get("lan_only", True):
@@ -112,6 +125,9 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
         middlewares.append(f"{slug}-sources@file")
     if requires_sign_in(app):
         middlewares.append(f"{SSO_MIDDLEWARE}@file")
+    restricted = restricts_sign_in(app)
+    if restricted:
+        middlewares.append(f"{slug}-access@file")
     start_path = app.get("start_path")
     if start_path:
         middlewares.append(f"{slug}-start@file")
@@ -139,6 +155,10 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER):
         # One allow list per app, so a client matching any selected list gets in.
         # Chained after lan-only, so it must pass that too.
         http.setdefault("middlewares", {})[f"{slug}-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
+    if restricted:
+        # Without the manager's address the check points nowhere, so Traefik refuses requests.
+        base = (access_url or "http://manager-address-unset.invalid").rstrip("/")
+        http.setdefault("middlewares", {})[f"{slug}-access"] = {"forwardAuth": {"address": f"{base}{ACCESS_PATH}/{slug}"}}
     if start_path:
         # Only the bare root is redirected; every other path reaches the backend unchanged.
         http.setdefault("middlewares", {})[f"{slug}-start"] = {"redirectRegex": {

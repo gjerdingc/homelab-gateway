@@ -170,6 +170,26 @@ def validate_emails(text):
     return emails, None
 
 
+SIGN_IN_WHO = ("everyone", "some")
+
+
+def validate_sign_in_users(form, require_sign_in):
+    """Who may open a sign-in app: everyone who may sign in, or only the people picked.
+
+    Returns (fields, errors). The picked people are kept even while sign-in is off, so turning
+    it back on restores them."""
+    who = (form.get("sign_in_who") or "everyone").strip()
+    if who not in SIGN_IN_WHO:
+        who = "everyone"
+    users = list(dict.fromkeys(e.strip().lower() for e in _getlist(form, "sign_in_users") if e and e.strip()))
+    errors = {}
+    if bad := [e for e in users if not EMAIL_RE.match(e)]:
+        errors["sign_in_users"] = f"Not an email address: {', '.join(bad)}"
+    elif require_sign_in and who == "some" and not users:
+        errors["sign_in_users"] = "Pick at least one person, or let everyone who can sign in open the app"
+    return {"sign_in_restricted": who == "some", "sign_in_users": users}, errors
+
+
 def _same_endpoint(a, b):
     """True when two URLs point at the same host and port."""
     pa, pb = urlparse(a), urlparse(b)
@@ -265,6 +285,8 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
                                          f"cookie is valid: {', '.join(outside)}")
         elif sso_auth_url and backend and _same_endpoint(backend, sso_auth_url):
             errors["require_sign_in"] = "This is the oauth2-proxy route itself; it cannot require sign-in"
+    sign_in, sign_in_errors = validate_sign_in_users(form, require_sign_in)
+    errors.update(sign_in_errors)
 
     access, access_errors = validate_access(form, ip_list_names)
     errors.update(access_errors)
@@ -285,6 +307,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         "pass_host_header": bool(form.get("pass_host_header")),
         "lan_only": bool(form.get("lan_only")),
         "require_sign_in": require_sign_in,
+        **sign_in,
         **access,
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,

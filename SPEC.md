@@ -294,6 +294,10 @@ apps:
     ip_lists: [admins]                  # optional named lists (see ip_lists below)
     allowed_sources: []                 # optional extra IPs/CIDRs; lists + these merge into one ipAllowList <slug>-sources (both empty = any)
     security_headers: true              # attach secure-headers middleware (default true)
+    require_sign_in: false              # Google sign-in: router gets sso@file (needs SSO_ENABLED)
+    sign_in_restricted: false           # with sign-in: only sign_in_users may open it. Adds <slug>-access@file after
+                                        # sso@file, a ForwardAuth to MANAGER_BACKEND/_access/<slug> (204, or 403 + no-access page)
+    sign_in_users: []                   # emails, also required to be on the Settings list; kept out of Traefik's config
     enabled: true                       # false = keep config, remove router file
     notes: ""
     cert:

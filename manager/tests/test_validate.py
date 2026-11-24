@@ -237,3 +237,18 @@ def test_emails_are_cleaned_and_checked():
     assert validate_emails("") == ([], None)
     _, error = validate_emails("me@gmail.com nope")
     assert error == "Not an email address: nope"
+
+
+def test_sign_in_people():
+    from validate import validate_sign_in_users
+    fields, errors = validate_sign_in_users({"sign_in_who": "some", "sign_in_users": ["Me@Gmail.com", "me@gmail.com", ""]}, True)
+    assert fields == {"sign_in_restricted": True, "sign_in_users": ["me@gmail.com"]} and not errors
+    _, errors = validate_sign_in_users({"sign_in_who": "some", "sign_in_users": [""]}, True)
+    assert "Pick at least one person" in errors["sign_in_users"]
+    _, errors = validate_sign_in_users({"sign_in_who": "some", "sign_in_users": ["nope"]}, True)
+    assert "Not an email address: nope" in errors["sign_in_users"]
+    # Kept while sign-in is off, so ticking it again brings the list back.
+    fields, errors = validate_sign_in_users({"sign_in_who": "some"}, False)
+    assert fields["sign_in_restricted"] and not errors
+    fields, _ = validate_sign_in_users({"sign_in_who": "bogus"}, True)
+    assert fields == {"sign_in_restricted": False, "sign_in_users": []}

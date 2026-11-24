@@ -138,7 +138,7 @@ class Manager:
         if app.get("reserved"):
             return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)),
                                   self.login.users() if self.login else None)
-        return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver)
+        return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver, self.config.manager_backend)
 
     def routable(self, app):
         """True when the app's file can be written: it has an internal cert, or Traefik gets one."""
@@ -739,6 +739,41 @@ class Manager:
 
     def sign_in_apps(self):
         return [a for a in self.user_apps() if tc.requires_sign_in(a)]
+
+    # ---- who may open which app ---------------------------------------------------
+    # Traefik asks on every request to an app restricted to some people, so the answer comes from
+    # a copy that is rebuilt only when apps.yml or emails.txt changes.
+
+    def _file_stamp(self, path):
+        try:
+            st_ = os.stat(path)
+            return (st_.st_mtime_ns, st_.st_size)
+        except OSError:
+            return None
+
+    def _access_table(self):
+        stamp = (self._file_stamp(self.store.path), self._file_stamp(self.config.sso_emails_path))
+        cached = getattr(self, "_access_cache", None)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        apps = {a["slug"]: a for a in self.user_apps()}
+        table = (apps, set(self.sso_allowed_emails()))
+        self._access_cache = (stamp, table)
+        return table
+
+    def may_open(self, slug, email):
+        """(allowed, app) for a signed-in user. app is None when no such app exists.
+
+        Allowed when the app lets everyone who signs in through, or when the email is picked for
+        the app and is still on the Settings list. Unknown apps and missing emails are refused."""
+        apps, everyone = self._access_table()
+        app = apps.get(slug)
+        email = (email or "").strip().lower()
+        if not app or not email or not tc.requires_sign_in(app):
+            return False, app
+        if not tc.restricts_sign_in(app):
+            return email in everyone, app
+        return email in everyone and email in (app.get("sign_in_users") or []), app
 
     def letsencrypt_apps(self):
         return [a for a in self.user_apps() if tc.uses_letsencrypt(a)]

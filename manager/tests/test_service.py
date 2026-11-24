@@ -544,6 +544,27 @@ def test_sign_in_app_is_written_with_the_sso_chain(sso_manager):
     assert "sso@file" not in open(dyn(m, "app-grafana.yml")).read() and m.sign_in_apps() == []
 
 
+def test_who_may_open_an_app(sso_manager):
+    m = sso_manager
+    m.set_sso_allowed_emails("me@gmail.com\nkid@gmail.com")
+    m.create_app(SSO_FORM)
+    # Everyone who can sign in.
+    assert m.may_open("grafana", "Kid@Gmail.com")[0] and not m.may_open("grafana", "stranger@gmail.com")[0]
+    m.update_app("grafana", {**SSO_FORM, "sign_in_who": "some", "sign_in_users": ["me@gmail.com"]})
+    data = yaml.safe_load(open(dyn(m, "app-grafana.yml")).read())["http"]
+    assert data["middlewares"]["grafana-access"]["forwardAuth"]["address"] == "http://traefik-manager:8000/_access/grafana"
+    assert m.may_open("grafana", "me@gmail.com") == (True, m.get("grafana"))
+    assert not m.may_open("grafana", "kid@gmail.com")[0]
+    assert not m.may_open("grafana", "")[0] and m.may_open("nope", "me@gmail.com") == (False, None)
+    # Removed under Settings: no longer let in here either, though still picked for the app.
+    m.set_sso_allowed_emails("kid@gmail.com")
+    assert not m.may_open("grafana", "me@gmail.com")[0] and m.get("grafana")["sign_in_users"] == ["me@gmail.com"]
+    # Without sign-in nobody is let through by this check.
+    m.update_app("grafana", {**SSO_FORM, "require_sign_in": "", "sign_in_who": "some", "sign_in_users": ["kid@gmail.com"]})
+    assert not m.may_open("grafana", "kid@gmail.com")[0]
+    assert "grafana-access" not in open(dyn(m, "app-grafana.yml")).read()
+
+
 def test_sign_in_refused_when_not_set_up(manager):
     with pytest.raises(ApplyError) as exc:
         manager.create_app({**FORM, "require_sign_in": "on"})

@@ -6,6 +6,7 @@ import logging
 import os
 import secrets
 import sys
+from urllib.parse import quote
 
 import requests
 from flask import (Flask, Response, abort, flash, redirect, render_template, request, send_file,
@@ -96,7 +97,8 @@ def create_app(env=None, start_background=True):
 
     @app.before_request
     def require_login():
-        if request.path in open_paths or login.check(request.headers.get("Authorization")):
+        if (request.path in open_paths or request.path.startswith(tc.ACCESS_PATH + "/")
+                or login.check(request.headers.get("Authorization"))):
             return None
         resp = Response("Log in to use Traefik Manager. Forgot the password? See Login in docs/guide.md.\n",
                         401, mimetype="text/plain")
@@ -112,7 +114,7 @@ def create_app(env=None, start_background=True):
 
     @app.before_request
     def check_csrf():
-        if request.method == "POST":
+        if request.method == "POST" and not request.path.startswith(tc.ACCESS_PATH + "/"):
             sent, expected = request.form.get("csrf_token", ""), session.get("csrf", "")
             if not expected or not hmac.compare_digest(sent, expected):
                 flash("Your session expired. Please try again.", "error")
@@ -174,7 +176,7 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "letsencrypt" if config.letsencrypt_enabled else "internal",
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "security_headers": True, "notes": ""}
+                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "sign_in_restricted": False, "sign_in_users": [], "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
@@ -186,6 +188,8 @@ def create_app(env=None, start_background=True):
                 "backend_tls_skip_verify": bool(f.get("backend_tls_skip_verify")),
                 "pass_host_header": bool(f.get("pass_host_header")), "lan_only": bool(f.get("lan_only")),
                 "require_sign_in": bool(f.get("require_sign_in")),
+                "sign_in_restricted": f.get("sign_in_who") == "some",
+                "sign_in_users": [e for e in f.getlist("sign_in_users") if e],
                 "security_headers": bool(f.get("security_headers"))}
 
     def render_form(values, errors=None, editing=None, preview=None):
@@ -193,7 +197,10 @@ def create_app(env=None, start_background=True):
             if isinstance(values.get(key), list):
                 values = {**values, key: "\n".join(values[key])}
         return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview,
-                               list_options=list_options())
+                               list_options=list_options(), people_options=people_options())
+
+    def people_options():
+        return [{"value": e, "detail": ""} for e in manager.sso_allowed_emails()] if config.sso_enabled else []
 
     def list_options():
         return [{"value": l["name"], "detail": l.get("description") or ", ".join(l["sources"])}
@@ -214,6 +221,27 @@ def create_app(env=None, start_background=True):
         except requests.RequestException as exc:
             api_error = describe(exc)
         return render_template("apps.html", apps=apps, routers=routers, api_error=api_error)
+
+    # ---- who may open an app (Traefik's forwardAuth, not people) ----------------
+
+    @app.route(tc.ACCESS_PATH + "/<slug>", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    def access_check(slug):
+        # X-Auth-Request-Email was set by the sso chain just before this check, which first removes
+        # any copy the browser sent. Asked directly, the answer only says yes or no.
+        email = request.headers.get("X-Auth-Request-Email", "")
+        allowed, a = manager.may_open(slug, email)
+        if allowed:
+            return Response(status=204)
+        host = (a or {}).get("fqdn") or request.headers.get("X-Forwarded-Host", "")
+        back = f"https://{host}/" if host else ""
+        sign_out = (f"https://{config.sso_auth_host}/oauth2/sign_out" + (f"?rd={quote(back, safe='')}" if back else "")
+                    if config.sso_enabled and config.sso_auth_host else "")
+        resp = Response(render_template("no_access.html", host=host, email=email.strip().lower(), sign_out=sign_out),
+                        403, mimetype="text/html")
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        return resp
 
     @app.route("/apps/new", methods=["GET", "POST"])
     def app_new():

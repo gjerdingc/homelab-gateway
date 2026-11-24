@@ -258,6 +258,47 @@ def test_sign_in_option_on_form_detail_list_and_status(client):
     assert 'name="require_sign_in" checked' in page
 
 
+def test_access_check_and_no_access_page(client):
+    mgr = client.tm["manager"]
+    mgr.startup()
+    mgr.config.sso_enabled, mgr.config.sso_domain = True, "gjecorp.net"
+    mgr.set_sso_allowed_emails("me@gmail.com\nkid@gmail.com")
+    page = client.get("/apps/new").get_data(as_text=True)
+    assert 'name="sign_in_who"' in page and 'value="kid@gmail.com"' in page
+    r = client.post("/apps/new", data={**FORM, "require_sign_in": "on", "sign_in_who": "some",
+                                       "sign_in_users": ["", "me@gmail.com"], "csrf_token": token(client)})
+    assert r.status_code == 302 and mgr.get("grafana")["sign_in_users"] == ["me@gmail.com"]
+    assert "only me@gmail.com" in client.get("/apps/grafana").get_data(as_text=True)
+    assert 'value="some" checked' in client.get("/apps/grafana/edit").get_data(as_text=True)
+
+    # Traefik's forwardAuth: no login needed, no CSRF token, any method.
+    anon = client.application.test_client()
+    mgr.login.save(["admin:$2y$10$abcdefghijklmnopqrstuuJ3nGAvSVQ1u2oG6Lb2X7X9wQq5m1y6W"])
+    assert anon.get("/").status_code == 401
+    assert anon.get("/_access/grafana", headers={"X-Auth-Request-Email": "me@gmail.com"}).status_code == 204
+    assert anon.post("/_access/grafana", headers={"X-Auth-Request-Email": "Me@gmail.com"}).status_code == 204
+    r = anon.get("/_access/grafana", headers={"X-Auth-Request-Email": "kid@gmail.com"})
+    html = r.get_data(as_text=True)
+    assert r.status_code == 403 and "You don't have access to grafana.gjecorp.net" in html
+    assert "kid@gmail.com" in html and "Traefik Manager" not in html
+    assert "https://auth.gjecorp.net/oauth2/sign_out?rd=https%3A%2F%2Fgrafana.gjecorp.net%2F" in html
+    assert r.headers["Cache-Control"] == "no-store" and "default-src 'none'" in r.headers["Content-Security-Policy"]
+    # Escaped, never markup.
+    r = anon.get("/_access/grafana", headers={"X-Auth-Request-Email": "<b>x</b>@a.com"})
+    assert r.status_code == 403 and "<b>x</b>" not in r.get_data(as_text=True)
+    assert anon.get("/_access/nope", headers={"X-Auth-Request-Email": "me@gmail.com"}).status_code == 403
+    # Edits work at once, with no new Traefik config.
+    mgr.login.save([])
+    before = open(mgr._dyn("app-grafana.yml")).read()
+    r = client.post("/apps/grafana/edit", data={**FORM, "require_sign_in": "on", "sign_in_who": "some",
+                                                "sign_in_users": ["kid@gmail.com"], "csrf_token": token(client)})
+    assert r.status_code == 302 and open(mgr._dyn("app-grafana.yml")).read() == before
+    assert anon.get("/_access/grafana", headers={"X-Auth-Request-Email": "kid@gmail.com"}).status_code == 204
+    r = client.post("/apps/grafana/edit", data={**FORM, "require_sign_in": "on", "sign_in_who": "some",
+                                                "sign_in_users": [""], "csrf_token": token(client)})
+    assert r.status_code == 400 and "Pick at least one person" in r.get_data(as_text=True)
+
+
 def test_sign_in_list_is_not_offered_when_sign_in_is_off(client):
     client.tm["manager"].startup()
     assert "Google sign-in is off" in client.get("/settings").get_data(as_text=True)

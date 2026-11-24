@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>No access{% if host %} to {{ host }}{% endif %}</title>
+{# Shown on the app's own address, to people who are not admins, so it is self-contained:
+   no manager navigation, no files from the manager's host. #}
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2430; --muted: #5b6575; --line: #e2e5ea;
+    --accent: #2f6fde; --accent-text: #ffffff; --badge: #fdf0e1; --badge-text: #8a4b06;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e6e9ef; --muted: #9aa3b2; --line: #2b313c;
+      --accent: #6b9cff; --accent-text: #0c1220; --badge: #3a2a14; --badge-text: #f3c27e;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+  }
+  main {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    max-width: 440px; width: 100%; padding: 36px 32px 30px; text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
+  }
+  .icon { width: 64px; height: 64px; margin: 0 auto 18px; display: block; }
+  .i-bg { fill: var(--badge); }
+  .i-line { fill: none; stroke: var(--badge-text); stroke-width: 3; stroke-linecap: round; }
+  .i-dot { fill: var(--badge-text); }
+  .tag {
+    display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    background: var(--badge); color: var(--badge-text); border-radius: 999px; padding: 3px 10px; margin-bottom: 12px;
+  }
+  h1 { font-size: 22px; line-height: 1.3; margin: 0 0 10px; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  .who {
+    display: block; margin: 18px 0 22px; padding: 10px 14px; border-radius: 10px;
+    background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all;
+  }
+  .who small { display: block; font: 12px/1.4 system-ui, sans-serif; color: var(--muted); margin-bottom: 2px; }
+  .btn {
+    display: inline-block; text-decoration: none; font-weight: 600; font-size: 15px;
+    background: var(--accent); color: var(--accent-text); border-radius: 10px; padding: 11px 18px;
+  }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .foot { margin: 20px 0 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+    <circle class="i-bg" cx="32" cy="32" r="30"/>
+    <rect class="i-line" x="20" y="29" width="24" height="18" rx="4"/>
+    <path class="i-line" d="M25 29v-5a7 7 0 0 1 14 0v5"/>
+    <circle class="i-dot" cx="32" cy="38" r="2.5"/>
+  </svg>
+  <span class="tag">No access</span>
+  <h1>You don't have access to {% if host %}{{ host }}{% else %}this app{% endif %}</h1>
+  <p>You're signed in, but this account isn't on the list of people who may open this app.</p>
+  {% if email %}<span class="who"><small>Signed in as</small>{{ email }}</span>{% endif %}
+  <p>If you should have access, ask the person who runs this site to add {% if email %}this account{% else %}you{% endif %} to the app.</p>
+  {% if sign_out %}<p><a class="btn" href="{{ sign_out }}">Use a different Google account</a></p>{% endif %}
+  <p class="foot">Error 403</p>
+</main>
+</body>
+</html>

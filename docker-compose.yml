@@ -17,10 +17,16 @@ services:
       - "443:443"
     command:
       - --log.level=INFO
-      # JSON access log in a file; the manager reads it for the Usage page
+      # JSON access log in a file; the manager reads it for the Usage and Traffic pages
       - --accesslog=true
       - --accesslog.format=json
       - --accesslog.filepath=/var/log/traefik/access.log
+      # Headers kept in the log: the browser, where it came from, and the signed-in user (set by
+      # oauth2-proxy on sign-in apps). Every other header is left out.
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.Referer=keep
+      - --accesslog.fields.headers.names.X-Auth-Request-Email=keep
       - --ping=true
       - --api.dashboard=true
       # The API listens on :8080 inside the container. That port is NOT published to the
@@ -126,6 +132,8 @@ services:
       RESET_LOGIN: ${RESET_LOGIN:-false}
       STATS_RETENTION_DAYS: ${STATS_RETENTION_DAYS:-90}
       ACCESS_LOG_MAX_MB: ${ACCESS_LOG_MAX_MB:-50}
+      # Traffic page: every request and sign-in, with IP addresses, kept this many days (0 = off)
+      TRAFFIC_RETENTION_DAYS: ${TRAFFIC_RETENTION_DAYS:-30}
       # Offer Let's Encrypt on the app form. Set ACME_DNS_PROVIDER and its credentials first.
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
       # Google sign-in: on when COMPOSE_PROFILES includes sso (which also starts oauth2-proxy below).
@@ -191,10 +199,19 @@ services:
       OAUTH2_PROXY_SCOPE: openid email profile
       # Only these addresses may sign in: the list on the manager's Settings page.
       OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
+      # Log to a file the manager reads for sign-ins and refusals (Traffic page), instead of to the
+      # container's output. Per-request lines are off: Traefik's access log already has them.
+      OAUTH2_PROXY_LOGGING_FILENAME: /var/log/oauth2-proxy/oauth2-proxy.log
+      OAUTH2_PROXY_LOGGING_MAX_SIZE: "10"
+      OAUTH2_PROXY_LOGGING_MAX_BACKUPS: "3"
+      OAUTH2_PROXY_LOGGING_MAX_AGE: "30"
+      OAUTH2_PROXY_REQUEST_LOGGING: "false"
     volumes:
       # The folder, not the file: Docker would create a directory if the file were not there yet.
       # Until the manager has written it, oauth2-proxy exits and is restarted.
       - ${TM_ROOT:-/opt/traefik}/oauth2-proxy:/etc/oauth2-proxy:ro
+      # Its log; the manager hands this folder to oauth2-proxy's user on start
+      - ${TM_ROOT:-/opt/traefik}/oauth2-proxy/logs:/var/log/oauth2-proxy
     networks: [proxy]
     depends_on: [traefik-manager]
 

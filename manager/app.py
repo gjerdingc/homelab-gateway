@@ -21,6 +21,7 @@ from config import Config, in_domains
 from renewer import Renewer
 from service import MANAGER_SLUG, ApplyError, Manager
 from stats import Stats, StatsCollector
+from traffic import EVENT_KINDS, Traffic
 from traefik_api import TraefikAPI, describe
 
 DOCS_COMPOSE_SNIPPET = """services:
@@ -79,14 +80,22 @@ def create_app(env=None, start_background=True):
         actions.write("RESET_LOGIN is set: removed the login set on the Settings page", "WARN")
     manager = Manager(config, ca, ca_error, store, actions, api, login=login)
     renewer = Renewer(manager)
+    traffic = None
+    if config.traffic_retention_days:
+        try:
+            traffic = Traffic(config.data_dir, config.traffic_retention_days,
+                              config.sso_log_path if config.sso_enabled else None)
+        except Exception as exc:  # e.g. an unreadable traffic.db: run without the Traffic page
+            logging.getLogger("traefik-manager").error("traffic detail is off: %s", exc)
     stats = Stats(config.data_dir, config.access_log_path, config.stats_retention_days,
-                  config.access_log_max_mb * 1024 * 1024)
-    collector = StatsCollector(stats)
+                  config.access_log_max_mb * 1024 * 1024, sink=traffic.add_requests if traffic else None)
+    collector = StatsCollector(stats, traffic=traffic)
 
     app = Flask(__name__)
     app.secret_key = _secret_key(config.data_dir)
     app.config.update(MAX_CONTENT_LENGTH=256 * 1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
-    app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats}
+    app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats,
+                           "traffic": traffic}
     app.jinja_env.filters["days_left"] = days_left
     app.jinja_env.filters["expiry_class"] = expiry_class
     app.jinja_env.globals["format_rule"] = tc.format_rule
@@ -236,6 +245,14 @@ def create_app(env=None, start_background=True):
         allowed, a = manager.may_open(slug, email)
         if allowed:
             return Response(status=204)
+        if traffic:
+            # Traefik's ForwardAuth passes the client's address in X-Forwarded-For.
+            client = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or None
+            try:
+                traffic.add_event("no_access", ip=client, user=email.strip().lower() or None, app=slug,
+                                  detail=request.headers.get("X-Forwarded-Uri", "")[:200] or None)
+            except Exception as exc:
+                logging.getLogger("traefik-manager").warning("could not record no-access event: %s", exc)
         host = (a or {}).get("fqdn") or request.headers.get("X-Forwarded-Host", "")
         back = f"https://{host}/" if host else ""
         sign_out = (f"https://{config.sso_auth_host}/oauth2/sign_out" + (f"?rd={quote(back, safe='')}" if back else "")
@@ -606,6 +623,47 @@ def create_app(env=None, start_background=True):
         else:
             flash(f"Read {count} new log lines.", "success")
         return redirect(url_for("usage", days=request.form.get("days", 30)))
+
+    TRAFFIC_PERIODS = {"24h": 24, "7d": 24 * 7, "30d": 24 * 30}
+
+    @app.get("/traffic")
+    def traffic_page():
+        if not traffic:
+            return render_template("traffic.html", off=True)
+        period = request.args.get("period", "24h")
+        if period not in TRAFFIC_PERIODS:
+            period = "24h"
+        hours = min(TRAFFIC_PERIODS[period], config.traffic_retention_days * 24)
+        since = traffic.since(hours)
+        ip = (request.args.get("ip") or "").strip()[:64] or None
+        user = (request.args.get("user") or "").strip().lower()[:254] or None
+        ctx = {"off": False, "period": period, "periods": list(TRAFFIC_PERIODS), "ip": ip, "user": user,
+               "event_kinds": EVENT_KINDS, "retention": config.traffic_retention_days, "traffic": traffic,
+               "sso_enabled": config.sso_enabled}
+        if ip or user:
+            ctx.update(subject=traffic.subject_summary(since, ip=ip, user=user),
+                       timeline=traffic.timeline(since, ip=ip, user=user),
+                       events=traffic.events(since, ip=ip, user=user))
+        else:
+            ctx.update(summary=traffic.summary(since), top_ips=traffic.top_ips(since),
+                       people=traffic.people(since), events=traffic.events(since, limit=50),
+                       suspicious=traffic.suspicious(since))
+        return render_template("traffic.html", **ctx)
+
+    @app.post("/traffic/refresh")
+    def traffic_refresh():
+        stats.ingest()
+        if traffic:
+            traffic.ingest_auth_log()
+        flash("Read the latest log lines.", "success")
+        return redirect(request.referrer or url_for("traffic_page"))
+
+    def when(ts):
+        if not ts:
+            return "-"
+        return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+    app.jinja_env.filters["when"] = when
 
     @app.get("/log")
     def log_page():

@@ -270,6 +270,7 @@ Validate all of these at startup. On bad config, log a clear error and show it o
 | `LETSENCRYPT_RESOLVER` | no | `letsencrypt` | Name of Traefik's ACME cert resolver, as configured in `docker-compose.yml` |
 | `COMPOSE_PROFILES` | no | – | With `sso` in it, compose starts oauth2-proxy and the manager turns sign-in on (unless `SSO_ENABLED` says otherwise) |
 | `SSO_ENABLED` | no | from `COMPOSE_PROFILES` | Offer *Require Google sign-in* per app. Adds the `sso` ForwardAuth chain and the `sso-signin` router for `auth.<SSO_DOMAIN>` to `_core.yml`, and that name to the manager's certificate |
+| `TRAFFIC_RETENTION_DAYS` | no | `30` | Days of per-request and sign-in detail in `/data/traffic.db` (SQLite) for the Traffic page; `0` = off. Fed from the access log (with `User-Agent`, `Referer`, `X-Auth-Request-Email` headers kept), oauth2-proxy's auth log (`<sso dir>/logs/oauth2-proxy.log`) and `/_access` denials |
 | `SSO_AUTH_HOST` | no | `auth.<SSO_DOMAIN>` | Name of the sign-in route (`sso-signin` router, manager cert SAN, oauth2-proxy's redirect URL). Must be under `SSO_DOMAIN`. Set per stack when two stacks share `SSO_DOMAIN` |
 | `OAUTH_COOKIE_NAME` | no | `_oauth2_proxy` | oauth2-proxy only (compose). Set per stack when two stacks share `SSO_DOMAIN` |
 | `OAUTH_COOKIE_SECRET` | no | – | oauth2-proxy only (compose). Overrides the generated `cookie-secret` file; for stacks that deliberately share one sign-in |

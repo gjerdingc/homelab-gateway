@@ -85,6 +85,8 @@ class Config:
         self.access_log_path = env.get("ACCESS_LOG_PATH", "/var/log/traefik/access.log").strip()
         self.stats_retention_days = self._int(env, "STATS_RETENTION_DAYS", 90, 1, 3650)
         self.access_log_max_mb = self._int(env, "ACCESS_LOG_MAX_MB", 50, 1, 10240)
+        # Traffic page: every request and sign-in, IPs in clear, kept this many days. 0 turns it off.
+        self.traffic_retention_days = self._int(env, "TRAFFIC_RETENTION_DAYS", 30, 0, 365)
         self.cert_validity_days = self._int(env, "CERT_VALIDITY_DAYS", 365, 1, 3650)
         self.renew_before_days = self._int(env, "RENEW_BEFORE_DAYS", 30, 1, 3650)
         self.renew_check_hours = self._int(env, "RENEW_CHECK_HOURS", 12, 1, 24 * 30)
@@ -183,6 +185,15 @@ class Config:
     @property
     def sso_emails_path(self):
         return os.path.join(self.sso_dir, "emails.txt")
+
+    @property
+    def sso_log_dir(self):
+        """Where oauth2-proxy writes its log (sign-ins), mounted writable into oauth2-proxy."""
+        return os.path.join(self.sso_dir, "logs")
+
+    @property
+    def sso_log_path(self):
+        return os.path.join(self.sso_log_dir, "oauth2-proxy.log")
 
     @property
     def sso_cookie_secret_path(self):

@@ -140,6 +140,7 @@ Installing the root certificate works for your own devices. For apps that guests
 | `KEY_TYPE` | `rsa-2048` | `rsa-2048` or `ec-p256` for issued certs |
 | `CERT_VALIDITY_DAYS` / `RENEW_BEFORE_DAYS` / `RENEW_CHECK_HOURS` | `365` / `30` / `12` | See [Renewal](#renewal) |
 | `STATS_RETENTION_DAYS` / `ACCESS_LOG_MAX_MB` | `90` / `50` | See [Usage statistics](#usage-statistics) |
+| `TRAFFIC_RETENTION_DAYS` | `30` | Days of request and sign-in detail for the [Traffic page](#traffic-page); `0` turns it off |
 | `TRAEFIK_API_URL` / `TRAEFIK_HTTPS_PORT` | `http://traefik:8080` / `443` | Only if you change the Traefik service |
 
 Let's Encrypt: `LETSENCRYPT_ENABLED`, `ACME_DNS_PROVIDER`, the provider's credentials, `ACME_EMAIL`, `ACME_CA_SERVER`, `ACME_DNS_RESOLVERS` (see [Let's Encrypt certificates](#lets-encrypt-certificates)).
@@ -454,9 +455,30 @@ The **Usage** page shows, per app, for the last 7, 30 or 90 days:
 
 Traefik writes a JSON access log to `/opt/traefik/logs/access.log`. The manager reads new lines every 5 minutes (or when you press **Refresh**) and keeps daily totals in `/data/stats.json` for `STATS_RETENTION_DAYS` days. Days follow `TZ`. When the log grows past `ACCESS_LOG_MAX_MB`, the manager empties it once everything in it has been counted.
 
-Privacy: the totals keep client IPs only as salted hashes, but the raw access log contains IPs until it is emptied. Lower `ACCESS_LOG_MAX_MB` to keep less.
+Privacy: the totals keep client IPs only as salted hashes, but the raw access log contains IPs until it is emptied. Lower `ACCESS_LOG_MAX_MB` to keep less. The [Traffic page](#traffic-page) keeps IPs in clear, for `TRAFFIC_RETENTION_DAYS`.
 
 Traefik's access log goes to that file instead of the container output, so it does not show in the container logs.
+
+## Traffic page
+
+The **Traffic** page shows who used the gateway and how, for the last 24 hours, 7 days or 30 days:
+
+- **Overview:** requests, addresses, people signed in, blocked requests (401/403), 404s, server errors, and sign-ins and refusals.
+- **Top addresses:** requests, blocked requests and 404s per IP address, and who signed in from it. Click an address for everything it did.
+- **Blocked and likely scanners:** addresses with a 401 or 403, or with many 404s, and the names they tried.
+- **People** (with Google sign-in): requests, addresses and apps per person. Click a person for everything they did.
+- **Sign-in events:** successful sign-ins, refused ones (an account not on the Settings list), and "no access" answers for apps limited to some people.
+
+Where it comes from:
+- **Traefik's access log**, the same one the Usage page reads. Traefik also keeps the `User-Agent`, `Referer` and `X-Auth-Request-Email` headers in it (all other headers are left out), so each request on a sign-in app carries the signed-in user.
+- **oauth2-proxy's log** of sign-ins and refusals. oauth2-proxy writes it to `<TM_ROOT>/oauth2-proxy/logs/oauth2-proxy.log` (10 MB files, three kept) instead of its container output. Its container log is therefore empty; look in that file for oauth2-proxy's errors. Per-request lines are off, because Traefik's access log already has them.
+- **The manager's own "no access" answers.**
+
+The detail is kept in `/data/traffic.db` (SQLite, under `<TM_ROOT>/manager`) for `TRAFFIC_RETENTION_DAYS` days, default 30, then deleted. `0` turns the page off. Query strings are not stored, as they can carry tokens.
+
+**Privacy:** unlike the Usage totals, this keeps IP addresses in clear and what each person did. On a stack that serves the internet these are visitors' personal data: say so in your privacy policy, and keep the manager behind its LAN allow-list and login. The file is readable only by root on the host. It can be left out of backups.
+
+The client address is the one Traefik sees. Behind a firewall that forwards with destination NAT, that is the visitor's own address. Behind another proxy or a CDN it is the proxy's, unless Traefik is told to trust its `X-Forwarded-For`.
 
 ## Troubleshooting
 

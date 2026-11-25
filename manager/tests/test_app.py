@@ -372,3 +372,45 @@ def test_ip_list_used_by_a_path_rule_cannot_be_deleted(client):
     r = client.post("/apps/new", data={**FORM, "path_rules": "/admin from=home deny", "csrf_token": token(client)})
     assert r.status_code == 302
     assert mgr.apps_using("home") == ["grafana"]
+
+
+def test_traffic_page(client):
+    import datetime
+    mgr, traffic = client.tm["manager"], client.tm["traffic"]
+    mgr.startup()
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    traffic.add_requests([
+        {"RouterName": "grafana@file", "StartUTC": now, "ClientHost": "203.0.113.7", "RequestMethod": "GET",
+         "RequestPath": "/d/1", "RequestHost": "grafana.gjecorp.net", "DownstreamStatus": 200,
+         "request_X-Auth-Request-Email": "me@gmail.com", "request_User-Agent": "<script>x</script>"},
+        {"StartUTC": now, "ClientHost": "192.0.2.66", "RequestMethod": "GET", "RequestPath": "/.env",
+         "RequestHost": "pma.gjecorp.net", "DownstreamStatus": 404},
+    ])
+    page = client.get("/traffic").get_data(as_text=True)
+    assert "Top addresses" in page and "203.0.113.7" in page and "192.0.2.66" in page
+    assert re.search(r'href="/traffic\?[^"]*user=me(%40|@)gmail.com', page)
+    page = client.get("/traffic?ip=203.0.113.7&period=7d").get_data(as_text=True)
+    assert "/d/1" in page and "me@gmail.com" in page and "<script>x" not in page
+    page = client.get("/traffic?user=me@gmail.com&period=bogus").get_data(as_text=True)
+    assert "203.0.113.7" in page and "/.env" not in page
+    r = client.post("/traffic/refresh", data={"csrf_token": token(client, "/traffic")})
+    assert r.status_code == 302
+
+    # "No access" answers are recorded with the client's address.
+    mgr.config.sso_enabled, mgr.config.sso_domain = True, "gjecorp.net"
+    mgr.set_sso_allowed_emails("me@gmail.com\nkid@gmail.com")
+    client.post("/apps/new", data={**FORM, "require_sign_in": "on", "sign_in_who": "some",
+                                   "sign_in_users": ["me@gmail.com"], "csrf_token": token(client)})
+    client.get("/_access/grafana", headers={"X-Auth-Request-Email": "kid@gmail.com",
+                                            "X-Forwarded-For": "198.51.100.3", "X-Forwarded-Uri": "/d/1"})
+    ev = traffic.events(0)[0]
+    assert (ev["kind"], ev["ip"], ev["user"], ev["app"], ev["detail"]) == (
+        "no_access", "198.51.100.3", "kid@gmail.com", "grafana", "/d/1")
+    assert "No access to app" in client.get("/traffic").get_data(as_text=True)
+
+
+def test_traffic_page_can_be_off(env):
+    flask_app = app_module.create_app({**env, "TRAFFIC_RETENTION_DAYS": "0"}, start_background=False)
+    c = flask_app.test_client()
+    assert flask_app.extensions["tm"]["traffic"] is None
+    assert "The Traffic page is off" in c.get("/traffic").get_data(as_text=True)

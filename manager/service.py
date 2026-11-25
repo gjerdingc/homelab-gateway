@@ -625,6 +625,7 @@ class Manager:
         if self.config.ok:
             self.ensure_sso_allow_list()
             self.ensure_sso_cookie_secret()
+            self.ensure_sso_log_dir()
         if not self.ready:
             self.actions.write(self.problem(), "ERROR")
             return
@@ -710,6 +711,29 @@ class Manager:
             self.actions.write(f"could not create oauth2-proxy's cookie secret {path}: {exc}", "ERROR")
             return False
         self.actions.write("created oauth2-proxy's cookie secret")
+        return True
+
+    def ensure_sso_log_dir(self):
+        """The folder oauth2-proxy writes its log to (sign-ins, read for the Traffic page).
+
+        Docker creates a missing bind-mount folder as root, so it is handed to oauth2-proxy's user
+        here; oauth2-proxy retries opening the file on its next log line."""
+        if not self.config.sso_enabled:
+            return False
+        path = self.config.sso_log_dir
+        try:
+            os.makedirs(path, exist_ok=True)
+            st_ = os.stat(path)
+            if st_.st_uid == OAUTH2_PROXY_UID:
+                return False
+            try:
+                os.chown(path, OAUTH2_PROXY_UID, OAUTH2_PROXY_UID)
+                os.chmod(path, 0o755)
+            except PermissionError:
+                os.chmod(path, 0o777)  # not root (only outside the container)
+        except OSError as exc:
+            self.actions.write(f"could not prepare oauth2-proxy's log folder {path}: {exc}", "ERROR")
+            return False
         return True
 
     def renew_due(self):

@@ -55,11 +55,13 @@ def _local_day(start_utc):
 
 
 class Stats:
-    def __init__(self, data_dir, log_path, retention_days=90, max_log_bytes=50 * 1024 * 1024):
+    def __init__(self, data_dir, log_path, retention_days=90, max_log_bytes=50 * 1024 * 1024, sink=None):
         self.path = os.path.join(data_dir, "stats.json")
         self.log_path = log_path
         self.retention_days = retention_days
         self.max_log_bytes = max_log_bytes
+        # Called with batches of parsed log entries, before the log can be truncated (traffic.py).
+        self.sink = sink
         self.lock = threading.Lock()
         self.last_error = None
         self.data = self._load()
@@ -143,16 +145,23 @@ class Stats:
                 self.data["offset"] = 0
             self.data["inode"] = info.st_ino
             f.seek(self.data["offset"])
+            batch = []
             while True:
                 line = f.readline()
                 if not line or not line.endswith(b"\n"):
                     break  # a partial last line is read next time
                 self.data["offset"] += len(line)
                 try:
-                    self._add(json.loads(line))
+                    entry = json.loads(line)
+                    self._add(entry)
                     count += 1
                 except (ValueError, TypeError, AttributeError):
                     continue
+                if self.sink:
+                    batch.append(entry)
+                    if len(batch) >= 1000:
+                        self._flush(batch)
+            self._flush(batch)
             self.data["head"] = self._fingerprint(f, min(self.data["offset"], HEAD_BYTES))
         self._prune()
         self.data["updated"] = st.now_iso()
@@ -164,6 +173,14 @@ class Stats:
             self._save()
             log.info("access log truncated after reading %s lines", count)
         return count
+
+    def _flush(self, batch):
+        if self.sink and batch:
+            try:
+                self.sink(list(batch))
+            except Exception as exc:  # the totals still count; the detail is best effort
+                log.warning("could not store traffic detail: %s", exc)
+        batch.clear()
 
     @staticmethod
     def _fingerprint(f, length):
@@ -210,8 +227,8 @@ class Stats:
 class StatsCollector:
     """Background loop that ingests the log every few minutes."""
 
-    def __init__(self, stats, interval=300):
-        self.stats, self.interval = stats, interval
+    def __init__(self, stats, interval=300, traffic=None):
+        self.stats, self.interval, self.traffic = stats, interval, traffic
         self._stop = threading.Event()
 
     def start(self):
@@ -228,5 +245,11 @@ class StatsCollector:
                 self.stats.ingest()
             except Exception as exc:  # never let the loop die
                 self.stats.last_error = str(exc)
+            if self.traffic:
+                try:
+                    self.traffic.ingest_auth_log()
+                    self.traffic.prune()
+                except Exception as exc:
+                    self.traffic.last_error = str(exc)
             if self._stop.wait(self.interval):
                 return

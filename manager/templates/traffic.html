@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Traffic - Traefik Manager{% endblock %}
+{% macro ip_link(ip) %}{% if ip %}<a class="mono" href="{{ url_for('traffic_page', ip=ip, period=period) }}">{{ ip }}</a>{% else %}-{% endif %}{% endmacro %}
+{% macro user_link(u) %}{% if u %}<a class="mono" href="{{ url_for('traffic_page', user=u, period=period) }}">{{ u }}</a>{% else %}<span class="muted">-</span>{% endif %}{% endmacro %}
+{% macro people_links(csv) %}{% for u in (csv or '').split(',') if u %}{{ user_link(u) }}{% if not loop.last %}, {% endif %}{% else %}<span class="muted">-</span>{% endfor %}{% endmacro %}
+{% macro status(s) %}<span class="badge {{ 'badge-err' if s >= 500 or s in (401, 403) else 'badge-warn' if s >= 400 else 'badge-ok' if s < 300 else 'badge-muted' }}">{{ s }}</span>{% endmacro %}
+{% macro event_badge(kind) %}<span class="badge {{ 'badge-ok' if kind == 'signin_ok' else 'badge-err' }}">{{ event_kinds.get(kind, kind) }}</span>{% endmacro %}
+{% block content %}
+{% if off %}
+<div class="page-head"><div><h1>Traffic</h1></div></div>
+<div class="alert alert-info">The Traffic page is off (<span class="mono">TRAFFIC_RETENTION_DAYS=0</span>). Set it to the number of days to keep, e.g. 30, and redeploy.</div>
+{% else %}
+<div class="page-head">
+  <div>
+    <h1>{% if ip %}Address <span class="mono">{{ ip }}</span>{% elif user %}Person <span class="mono">{{ user }}</span>{% else %}Traffic{% endif %}</h1>
+    <p class="muted">Every request through Traefik and every sign-in, kept {{ retention }} days. {% if ip or user %}<a href="{{ url_for('traffic_page', period=period) }}">Back to all traffic</a>{% else %}Read every few minutes.{% endif %}</p>
+  </div>
+  <div class="actions period">
+    {% for p in periods %}<a class="btn btn-small{% if p == period %} btn-primary{% endif %}" href="{{ url_for('traffic_page', period=p, ip=ip, user=user) }}">{{ p }}</a>{% endfor %}
+    <form method="post" action="{{ url_for('traffic_refresh') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-small" type="submit">Refresh</button></form>
+  </div>
+</div>
+{% if traffic.last_error %}<div class="alert alert-error">{{ traffic.last_error }}</div>{% endif %}
+
+{% if ip or user %}
+<section class="card">
+  <h2>Summary</h2>
+  <dl class="kv">
+    <dt>Requests</dt><dd>{{ subject.requests or 0 }}{% if subject.requests %} · from {{ subject.first | when }} to {{ subject.last | when }}{% endif %}</dd>
+    <dt>Blocked (401/403)</dt><dd>{{ subject.blocked or 0 }}</dd>
+    <dt>Not found (404)</dt><dd>{{ subject.not_found or 0 }}</dd>
+    <dt>Server errors</dt><dd>{{ subject.errors or 0 }}</dd>
+    <dt>Apps</dt><dd class="mono">{{ (subject.apps or '-').replace(',', ', ') }}</dd>
+    {% if ip %}<dt>Signed in as</dt><dd>{{ people_links(subject.people) }}</dd>
+    {% else %}<dt>From addresses</dt><dd>{% for a in (subject.ips or '').split(',') if a %}{{ ip_link(a) }}{% if not loop.last %}, {% endif %}{% else %}-{% endfor %}</dd>{% endif %}
+    <dt>Browsers</dt><dd>{% for a in subject.agents %}<div class="mono small">{{ a.ua }} <span class="muted">({{ a.n }})</span></div>{% else %}-{% endfor %}</dd>
+  </dl>
+</section>
+
+{% if events %}
+<section class="card table-card">
+<h2>Sign-in events</h2>
+<table class="usage-table">
+  <thead><tr><th>Time</th><th>Event</th><th>{{ 'Person' if ip else 'Address' }}</th><th class="hide-sm">Detail</th></tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr><td data-label="Time" class="mono nowrap">{{ e.ts | when }}</td><td data-label="Event">{{ event_badge(e.kind) }}{% if e.app %} <span class="mono">{{ e.app }}</span>{% endif %}</td>
+      <td data-label="{{ 'Person' if ip else 'Address' }}">{{ user_link(e.user) if ip else ip_link(e.ip) }}</td><td data-label="Detail" class="hide-sm small">{{ e.detail or '' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+{% endif %}
+
+<section class="card table-card">
+<h2>Requests, newest {{ timeline | length }}</h2>
+<table class="usage-table">
+  <thead><tr><th>Time</th><th>Status</th><th>Request</th><th>{{ 'Person' if ip else 'Address' }}</th><th class="hide-sm">Time taken</th></tr></thead>
+  <tbody>
+  {% for r in timeline %}
+    <tr>
+      <td data-label="Time" class="mono nowrap">{{ r.ts | when }}</td>
+      <td data-label="Status">{{ status(r.status) }}</td>
+      <td data-label="Request" class="mono wrap-any"><span class="muted">{{ r.method }}</span> {{ r.host or '' }}{{ r.path }}{% if not r.app %} <span class="badge badge-muted" title="Matched no app">no route</span>{% endif %}</td>
+      <td data-label="{{ 'Person' if ip else 'Address' }}">{{ user_link(r.user) if ip else ip_link(r.ip) }}</td>
+      <td data-label="Time taken" class="hide-sm nowrap">{{ r.duration_ms }} ms</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">No requests in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+
+{% else %}
+<section class="card">
+  <h2>Overview</h2>
+  <dl class="kv">
+    <dt>Requests</dt><dd>{{ summary.requests }}</dd>
+    <dt>Addresses</dt><dd>{{ summary.ips }}</dd>
+    <dt>People signed in</dt><dd>{{ summary.people }}</dd>
+    <dt>Blocked (401/403)</dt><dd>{% if summary.blocked %}<span class="badge badge-err">{{ summary.blocked }}</span>{% else %}0{% endif %}</dd>
+    <dt>Not found (404)</dt><dd>{{ summary.not_found }}</dd>
+    <dt>Server errors</dt><dd>{% if summary.errors %}<span class="badge badge-err">{{ summary.errors }}</span>{% else %}0{% endif %}</dd>
+    {% if sso_enabled %}<dt>Sign-ins</dt><dd>{{ summary.signin_ok }} signed in · {% if summary.signin_refused %}<span class="badge badge-err">{{ summary.signin_refused }} refused</span>{% else %}0 refused{% endif %} · {{ summary.no_access }} "no access"</dd>{% endif %}
+  </dl>
+</section>
+
+<section class="card table-card">
+<h2>Top addresses</h2>
+<table class="usage-table">
+  <thead><tr><th>Address</th><th>Requests</th><th>Blocked</th><th class="hide-sm">404s</th><th>People</th><th class="hide-sm">Last seen</th></tr></thead>
+  <tbody>
+  {% for r in top_ips %}
+    <tr>
+      <td data-label="Address">{{ ip_link(r.ip) }}</td>
+      <td data-label="Requests">{{ r.requests }}</td>
+      <td data-label="Blocked">{% if r.blocked %}<span class="badge badge-err">{{ r.blocked }}</span>{% else %}0{% endif %}</td>
+      <td data-label="404s" class="hide-sm">{{ r.not_found or 0 }}</td>
+      <td data-label="People">{{ people_links(r.people) }}</td>
+      <td data-label="Last seen" class="mono nowrap hide-sm">{{ r.last | when }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="empty">No requests in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+
+<section class="card table-card">
+<h2>Blocked and likely scanners</h2>
+<table class="usage-table">
+  <thead><tr><th>Address</th><th>Blocked</th><th>404s</th><th class="hide-sm">Names tried</th><th class="hide-sm">Last seen</th></tr></thead>
+  <tbody>
+  {% for r in suspicious %}
+    <tr>
+      <td data-label="Address">{{ ip_link(r.ip) }}</td>
+      <td data-label="Blocked">{{ r.blocked or 0 }}</td>
+      <td data-label="404s">{{ r.not_found or 0 }}</td>
+      <td data-label="Names tried" class="mono hide-sm wrap-any">{{ (r.hosts or '-').replace(',', ', ') | truncate(120) }}</td>
+      <td data-label="Last seen" class="mono nowrap hide-sm">{{ r.last | when }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">Nothing blocked, and no address with many 404s.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="help">Addresses with a 401 or 403 (wrong login, outside an allow-list, no access to an app), or with many 404s, which is what scanners looking for known weaknesses leave behind.</p>
+</section>
+
+{% if sso_enabled or people %}
+<section class="card table-card">
+<h2>People</h2>
+<table class="usage-table">
+  <thead><tr><th>Person</th><th>Requests</th><th>Addresses</th><th class="hide-sm">Apps</th><th class="hide-sm">Last seen</th></tr></thead>
+  <tbody>
+  {% for r in people %}
+    <tr>
+      <td data-label="Person">{{ user_link(r.user) }}</td>
+      <td data-label="Requests">{{ r.requests }}</td>
+      <td data-label="Addresses">{{ r.ips }}</td>
+      <td data-label="Apps" class="mono hide-sm">{{ (r.apps or '-').replace(',', ', ') }}</td>
+      <td data-label="Last seen" class="mono nowrap hide-sm">{{ r.last | when }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">Nobody signed in during this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</section>
+
+<section class="card table-card">
+<h2>Sign-in events</h2>
+<table class="usage-table">
+  <thead><tr><th>Time</th><th>Event</th><th>Person</th><th>Address</th><th class="hide-sm">Detail</th></tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr>
+      <td data-label="Time" class="mono nowrap">{{ e.ts | when }}</td>
+      <td data-label="Event">{{ event_badge(e.kind) }}{% if e.app %} <span class="mono">{{ e.app }}</span>{% endif %}</td>
+      <td data-label="Person">{{ user_link(e.user) }}</td>
+      <td data-label="Address">{{ ip_link(e.ip) }}</td>
+      <td data-label="Detail" class="hide-sm small">{{ e.detail or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">No sign-ins in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="help">Sign-ins and refusals come from oauth2-proxy's log; "no access" from the manager's check for apps limited to some people.</p>
+</section>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

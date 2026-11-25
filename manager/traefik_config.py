@@ -200,11 +200,9 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
     sources = effective_sources(app, ip_lists)
     if sources:
         guards.append(f"{slug}-sources@file")
-    middlewares = list(guards)
-    if rules:
-        # Some routes of this app pass a user on and some don't, so no route may let a client's own
-        # X-Auth-Request-* headers through.
-        middlewares.append(f"{STRIP_IDENTITY}@file")
+    # Every route drops X-Auth-Request-* (and similar) headers the client sent, so no app can be
+    # handed a forged user, with or without sign-in. Sign-in then sets the real ones.
+    middlewares = [*guards, f"{STRIP_IDENTITY}@file"]
     if requires_sign_in(app):
         middlewares.append(f"{SSO_MIDDLEWARE}@file")
     restricted = restricts_sign_in(app)
@@ -326,8 +324,8 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
             "referrerPolicy": "same-origin",
         }},
     }
-    # Used by apps with path rules: every one of their routes drops identity headers a client sent,
-    # and a "deny" rule (or the write half of a read-only one) answers 403.
+    # On every route the manager writes: drop identity headers a client sent. And for path rules:
+    # a "deny" rule (or the write half of a read-only one) answers 403.
     middlewares[STRIP_IDENTITY] = {"headers": {"customRequestHeaders": {h: "" for h in SSO_STRIPPED}}}
     middlewares[DENY_MIDDLEWARE] = {"ipAllowList": {"sourceRange": list(DENY_ALL)}}
     if config.sso_enabled:
@@ -336,12 +334,12 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
     if sources:
         middlewares["manager-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
         guards.append("manager-sources")
-    open_guards = [f"{g}@file" for g in guards]
+    open_guards = [f"{g}@file" for g in guards] + [f"{STRIP_IDENTITY}@file"]
     if auth_users:
         # Same realm as the manager's own check, so the browser uses one login for both.
         middlewares["basic-auth"] = {"basicAuth": {"users": auth_users, "realm": "Traefik Manager"}}
         guards.append("basic-auth")
-    guards = [f"{g}@file" for g in guards]
+    guards = [f"{g}@file" for g in guards] + [f"{STRIP_IDENTITY}@file"]
 
     host = f"Host(`{config.manager_fqdn}`)"
     routers = {}
@@ -385,7 +383,7 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
             "rule": f"Host(`{config.sso_auth_host}`)",
             "entryPoints": ["websecure"],
             "service": SSO_SIGNIN,
-            "middlewares": ["secure-headers@file"],
+            "middlewares": [f"{STRIP_IDENTITY}@file", "secure-headers@file"],
             "tls": {"certResolver": config.letsencrypt_resolver} if config.sso_auth_letsencrypt else {},
         }
         services[SSO_SIGNIN] = {"loadBalancer": {"servers": [{"url": config.sso_auth_url}]}}

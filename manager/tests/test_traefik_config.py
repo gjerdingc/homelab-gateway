@@ -21,6 +21,7 @@ http:
       service: grafana
       middlewares:
       - lan-only@file
+      - strip-identity@file
       - secure-headers@file
       tls: {}
   services:
@@ -30,10 +31,10 @@ http:
         servers:
         - url: http://grafana:3000
   middlewares:
-    tm-rev-grafana-35b73ae3a0:
+    tm-rev-grafana-3cee7ca942:
       headers:
         customResponseHeaders:
-          X-TM-Rev: 35b73ae3a0
+          X-TM-Rev: 3cee7ca942
 tls:
   certificates:
   - certFile: /etc/traefik/certs/grafana/4f2a.crt
@@ -55,7 +56,8 @@ def test_app_without_middlewares_or_insecure_backend():
     app = {**APP, "lan_only": False, "security_headers": False, "backend_url": "https://x:443", "backend_tls_skip_verify": True}
     data = yaml.safe_load(tc.render_app(app))
     router = data["http"]["routers"]["grafana"]
-    assert "middlewares" not in router
+    # Even with nothing else, forged identity headers are dropped (R13).
+    assert router["middlewares"] == ["strip-identity@file"]
     assert data["http"]["services"]["grafana"]["loadBalancer"]["serversTransport"] == "grafana-insecure@file"
     assert data["http"]["serversTransports"]["grafana-insecure"] == {"insecureSkipVerify": True}
 
@@ -84,11 +86,12 @@ def test_core_routes_and_middlewares():
 def test_core_dashboard_disabled_and_basic_auth():
     data = yaml.safe_load(tc.render_core(core_config(DASHBOARD_ENABLED="false", BASIC_AUTH_USERS="me:$apr1$x$y"), None))
     assert "traefik-dashboard" not in data["http"]["routers"]
-    assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "basic-auth@file"]
+    assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "basic-auth@file",
+                                                                         "strip-identity@file"]
     assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == ["me:$apr1$x$y"]
     assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["realm"] == "Traefik Manager"
     public = data["http"]["routers"]["traefik-manager-root-ca"]
-    assert public["middlewares"] == ["lan-only@file"] and "/status/root_ca.crt" in public["rule"]
+    assert public["middlewares"] == ["lan-only@file", "strip-identity@file"] and "/status/root_ca.crt" in public["rule"]
 
 
 def test_core_login_from_settings_overrides_nothing_when_unset():
@@ -103,7 +106,7 @@ def test_core_login_from_settings_overrides_nothing_when_unset():
 
 def test_revision_marker_tracks_content():
     marker = tc.revision_marker(tc.render_app(APP))
-    assert marker == "tm-rev-grafana-35b73ae3a0"
+    assert marker == "tm-rev-grafana-3cee7ca942"
     assert tc.revision_marker(tc.render_app(dict(APP))) == marker
     renewed = {**APP, "cert": {"cert_path": "/new.crt", "key_path": "/new.key"}}
     assert tc.revision_marker(tc.render_app(renewed)) != marker
@@ -113,7 +116,8 @@ def test_revision_marker_tracks_content():
 
 def test_start_path_redirects_only_the_root():
     data = yaml.safe_load(tc.render_app({**APP, "start_path": "/admin/"}))
-    assert data["http"]["routers"]["grafana"]["middlewares"] == ["lan-only@file", "grafana-start@file", "secure-headers@file"]
+    assert data["http"]["routers"]["grafana"]["middlewares"] == ["lan-only@file", "strip-identity@file", "grafana-start@file",
+                                                                 "secure-headers@file"]
     redirect = data["http"]["middlewares"]["grafana-start"]["redirectRegex"]
     assert redirect == {"regex": "^(https?://[^/]+)/?$", "replacement": "${1}/admin/", "permanent": False}
     assert "grafana-start" not in tc.render_app(APP)
@@ -122,7 +126,7 @@ def test_start_path_redirects_only_the_root():
 def test_allowed_sources_add_an_ip_allow_list():
     data = yaml.safe_load(tc.render_app({**APP, "allowed_sources": ["10.0.0.20", "10.0.1.0/24"], "start_path": "/admin/"}))
     assert data["http"]["routers"]["grafana"]["middlewares"] == [
-        "lan-only@file", "grafana-sources@file", "grafana-start@file", "secure-headers@file"]
+        "lan-only@file", "grafana-sources@file", "strip-identity@file", "grafana-start@file", "secure-headers@file"]
     assert data["http"]["middlewares"]["grafana-sources"] == {"ipAllowList": {"sourceRange": ["10.0.0.20", "10.0.1.0/24"]}}
     assert "grafana-start" in data["http"]["middlewares"]
     assert "grafana-sources" not in tc.render_app(APP)
@@ -167,7 +171,7 @@ SSO_ENV = {"ALLOWED_DOMAINS": "gjecorp.net,oplassen.net", "SSO_ENABLED": "true",
 def test_sign_in_app_gets_the_sso_chain_after_the_ip_checks():
     app = {**APP, "require_sign_in": True, "allowed_sources": ["10.0.0.20"], "start_path": "/admin/"}
     router = yaml.safe_load(tc.render_app(app))["http"]["routers"]["grafana"]
-    assert router["middlewares"] == ["lan-only@file", "grafana-sources@file", "sso@file",
+    assert router["middlewares"] == ["lan-only@file", "grafana-sources@file", "strip-identity@file", "sso@file",
                                      "grafana-start@file", "secure-headers@file"]
     assert "sso@file" not in tc.render_app(APP)
 
@@ -175,7 +179,7 @@ def test_sign_in_app_gets_the_sso_chain_after_the_ip_checks():
 def test_app_for_some_people_asks_the_manager_after_sign_in():
     app = {**APP, "require_sign_in": True, "sign_in_restricted": True, "sign_in_users": ["me@gmail.com"]}
     data = yaml.safe_load(tc.render_app(app, access_url="http://traefik-manager:8000/"))["http"]
-    assert data["routers"]["grafana"]["middlewares"] == ["lan-only@file", "sso@file", "grafana-access@file",
+    assert data["routers"]["grafana"]["middlewares"] == ["lan-only@file", "strip-identity@file", "sso@file", "grafana-access@file",
                                                          "secure-headers@file"]
     assert data["middlewares"]["grafana-access"] == {
         "forwardAuth": {"address": "http://traefik-manager:8000/_access/grafana"}}
@@ -245,7 +249,7 @@ def test_core_routes_the_sign_in_host_to_oauth2_proxy():
     http = yaml.safe_load(tc.render_core(core_config(**SSO_ENV), None))["http"]
     assert http["routers"]["sso-signin"] == {
         "rule": "Host(`auth.oplassen.net`)", "entryPoints": ["websecure"], "service": "sso-signin",
-        "middlewares": ["secure-headers@file"], "tls": {}}
+        "middlewares": ["strip-identity@file", "secure-headers@file"], "tls": {}}
     assert http["services"]["sso-signin"] == {"loadBalancer": {"servers": [{"url": "http://oauth2-proxy:4180"}]}}
 
 

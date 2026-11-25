@@ -355,7 +355,8 @@ http:
       rule: "Host(`grafana.gjecorp.net`) || Host(`grafana2.gjecorp.net`)"
       entryPoints: [websecure]
       service: grafana
-      middlewares: [lan-only@file, secure-headers@file]
+      # strip-identity drops client-sent X-Auth-Request-* headers on every route, sign-in or not
+      middlewares: [lan-only@file, strip-identity@file, secure-headers@file]
       tls: {}
   services:
     grafana:

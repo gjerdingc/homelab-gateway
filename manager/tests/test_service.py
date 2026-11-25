@@ -415,7 +415,7 @@ def test_manager_access_limits_the_manager_and_dashboard(manager):
     http = core(manager)["http"]
     assert http["middlewares"]["manager-sources"] == {"ipAllowList": {"sourceRange": ["10.0.0.20", "10.0.0.30"]}}
     for router in ("traefik-manager", "traefik-dashboard"):
-        assert http["routers"][router]["middlewares"] == ["lan-only@file", "manager-sources@file"]
+        assert http["routers"][router]["middlewares"] == ["lan-only@file", "manager-sources@file", "strip-identity@file"]
     # Kept across a renewal and a restart.
     manager.renew_app("_manager")
     manager.regenerate_all()

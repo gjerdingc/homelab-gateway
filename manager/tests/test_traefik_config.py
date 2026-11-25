@@ -245,3 +245,84 @@ def test_sign_in_host_can_use_lets_encrypt():
     assert not core_config(**SSO_ENV).sso_auth_letsencrypt  # internal by default
     assert any("needs Let's Encrypt set up" in e for e in core_config(**SSO_ENV, SSO_AUTH_CERT="letsencrypt").errors)
     assert any("SSO_AUTH_CERT must be" in e for e in core_config(**SSO_ENV, SSO_AUTH_CERT="acme").errors)
+
+
+# ---- path rules ----------------------------------------------------------------
+
+RULES = [
+    {"paths": ["/admin", "/api/admin/"], "from": ["home"], "access": "sign-in", "unauth": "google", "read_only": False},
+    {"paths": ["/admin", "/api/admin/"], "from": [], "access": "deny", "read_only": False},
+    {"paths": ["/games", "/assets/"], "from": [], "access": "open", "read_only": True},
+    {"paths": ["/"], "from": ["home"], "access": "optional", "read_only": True},
+    {"paths": ["/api/"], "from": [], "access": "sign-in", "unauth": "401", "read_only": True},
+    {"paths": ["/"], "from": [], "access": "sign-in", "unauth": "/games", "read_only": True},
+]
+RULES_APP = {**APP, "slug": "bg", "fqdn": "bg.gjecorp.net", "extra_sans": [], "lan_only": False,
+             "backend_url": "http://bg:8080", "path_rules": RULES}
+
+
+def test_path_rules_render_routers_in_order():
+    data = yaml.safe_load(tc.render_app(RULES_APP, {"home": ["10.0.0.0/24", "fd00::/64"]}, access_url="http://manager:8080"))
+    routers, mws = data["http"]["routers"], data["http"]["middlewares"]
+    host = "(Host(`bg.gjecorp.net`))"
+    # The main router keeps the app's own settings, but never lets client identity headers through.
+    assert routers["bg"]["middlewares"] == ["strip-identity@file", "secure-headers@file"]
+    assert "priority" not in routers["bg"]
+    assert routers["bg-oauth2"] == {
+        "rule": f"{host} && PathPrefix(`/oauth2/`)", "entryPoints": ["websecure"], "service": "sso-signin@file",
+        "priority": tc.OAUTH2_PRIORITY, "middlewares": ["strip-identity@file", "secure-headers@file"], "tls": {}}
+    r1 = routers["bg-rule1"]
+    assert r1["rule"] == (f"{host} && (Path(`/admin`) || PathPrefix(`/admin/`) || PathPrefix(`/api/admin/`))"
+                          " && (ClientIP(`10.0.0.0/24`) || ClientIP(`fd00::/64`))")
+    assert r1["middlewares"] == ["strip-identity@file", "sso@file", "secure-headers@file"]
+    assert routers["bg-rule2"]["middlewares"] == ["strip-identity@file", "deny-all@file", "secure-headers@file"]
+    assert routers["bg-rule3"]["middlewares"] == ["strip-identity@file", "secure-headers@file"]
+    assert routers["bg-rule4"]["middlewares"] == ["strip-identity@file", "bg-rule4-auth@file", "secure-headers@file"]
+    assert mws["bg-rule4-auth"]["forwardAuth"] == {
+        "address": "http://manager:8080/_signin/bg?mode=optional", "authResponseHeaders": tc.SSO_HEADERS}
+    assert mws["bg-rule5-auth"]["forwardAuth"]["address"] == "http://manager:8080/_signin/bg?mode=401"
+    assert mws["bg-rule6-auth"]["forwardAuth"]["address"] == "http://manager:8080/_signin/bg?mode=redirect&to=%2Fgames"
+    # Earlier rules win: each rule's priority is above every later one, write blockers included.
+    order = [routers[f"bg-rule{i}"]["priority"] for i in range(1, 7)]
+    assert order == sorted(order, reverse=True)
+    assert routers["bg-rule2"]["priority"] > routers["bg-rule3-write"]["priority"] > routers["bg-rule3"]["priority"]
+    assert routers["bg-rule3-write"]["rule"] == routers["bg-rule3"]["rule"] + " && !(Method(`GET`) || Method(`HEAD`))"
+    assert routers["bg-rule3-write"]["middlewares"] == ["deny-all@file"]
+    assert "bg-rule1-write" not in routers and "bg-rule2-write" not in routers
+
+
+def test_path_rules_keep_app_guards_and_restriction():
+    app = {**RULES_APP, "lan_only": True, "ip_lists": ["home"], "sign_in_restricted": True, "sign_in_users": ["a@b.c"]}
+    data = yaml.safe_load(tc.render_app(app, {"home": ["10.0.0.0/24"]}, access_url="http://m:8080"))
+    routers = data["http"]["routers"]
+    for name in ("bg", "bg-oauth2", "bg-rule1", "bg-rule3", "bg-rule3-write"):
+        assert routers[name]["middlewares"][:2] == ["lan-only@file", "bg-sources@file"], name
+    # Picked people apply to the rules that sign in with Google, not to a main router without sign-in.
+    assert "bg-access@file" in routers["bg-rule1"]["middlewares"]
+    assert "bg-access@file" not in routers["bg"]["middlewares"]
+    assert "bg-access" in data["http"]["middlewares"]
+
+
+def test_path_rule_with_missing_list_matches_no_one():
+    data = yaml.safe_load(tc.render_app(RULES_APP, {}, access_url="http://m:8080"))
+    assert data["http"]["routers"]["bg-rule1"]["rule"].endswith("(ClientIP(`0.0.0.0/32`) || ClientIP(`::/128`))")
+
+
+def test_app_without_rules_or_sign_in_has_no_rule_routers():
+    data = yaml.safe_load(tc.render_app({**RULES_APP, "path_rules": [
+        {"paths": ["/x"], "from": [], "access": "open", "read_only": False}]}))
+    assert sorted(data["http"]["routers"]) == ["bg", "bg-rule1"]  # no /oauth2/ route without sign-in
+
+
+def test_core_defines_rule_middlewares():
+    data = yaml.safe_load(tc.render_core(core_config(), None))
+    mws = data["http"]["middlewares"]
+    assert mws["deny-all"] == {"ipAllowList": {"sourceRange": tc.DENY_ALL}}
+    assert set(mws["strip-identity"]["headers"]["customRequestHeaders"]) == set(tc.SSO_STRIPPED)
+
+
+def test_path_matching():
+    assert tc.path_matcher(["/", "/a/", "/b"]) == "PathPrefix(`/`) || PathPrefix(`/a/`) || Path(`/b`) || PathPrefix(`/b/`)"
+    assert tc.path_matches(["/games"], "/games") and tc.path_matches(["/games"], "/games/x")
+    assert not tc.path_matches(["/games"], "/gamesx") and not tc.path_matches(["/a/"], "/a")
+    assert tc.path_matches(["/"], "/anything")

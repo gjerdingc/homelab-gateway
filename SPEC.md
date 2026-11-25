@@ -297,6 +297,13 @@ apps:
     require_sign_in: false              # Google sign-in: router gets sso@file (needs SSO_ENABLED)
     sign_in_restricted: false           # with sign-in: only sign_in_users may open it. Adds <slug>-access@file after
                                         # sso@file, a ForwardAuth to MANAGER_BACKEND/_access/<slug> (204, or 403 + no-access page)
+    path_rules:                         # optional, tried in order before the main router (docs/guide.md "Path rules")
+      - paths: [/admin, /api/admin/]    # "/x" = /x and below, "/x/" = below only, "/" = all
+        from: [home]                    # IP lists: ClientIP(...) in the router rule; missing list = matches no one
+        access: sign-in                 # open | optional | sign-in | deny
+        unauth: google                  # sign-in only: google (sso@file) | "401" | "/path" (both via
+                                        # ForwardAuth MANAGER_BACKEND/_signin/<slug>?mode=...)
+        read_only: false                # true adds <slug>-rule<i>-write: same match && !(GET|HEAD) -> deny-all@file
     sign_in_users: []                   # emails, also required to be on the Settings list; kept out of Traefik's config
     enabled: true                       # false = keep config, remove router file
     notes: ""

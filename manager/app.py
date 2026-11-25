@@ -89,6 +89,7 @@ def create_app(env=None, start_background=True):
     app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats}
     app.jinja_env.filters["days_left"] = days_left
     app.jinja_env.filters["expiry_class"] = expiry_class
+    app.jinja_env.globals["format_rule"] = tc.format_rule
 
     # ---- login ---------------------------------------------------------------
 
@@ -97,7 +98,7 @@ def create_app(env=None, start_background=True):
 
     @app.before_request
     def require_login():
-        if (request.path in open_paths or request.path.startswith(tc.ACCESS_PATH + "/")
+        if (request.path in open_paths or request.path.startswith((tc.ACCESS_PATH + "/", tc.SIGNIN_PATH + "/"))
                 or login.check(request.headers.get("Authorization"))):
             return None
         resp = Response("Log in to use Traefik Manager. Forgot the password? See Login in docs/guide.md.\n",
@@ -114,7 +115,7 @@ def create_app(env=None, start_background=True):
 
     @app.before_request
     def check_csrf():
-        if request.method == "POST" and not request.path.startswith(tc.ACCESS_PATH + "/"):
+        if request.method == "POST" and not request.path.startswith((tc.ACCESS_PATH + "/", tc.SIGNIN_PATH + "/")):
             sent, expected = request.form.get("csrf_token", ""), session.get("csrf", "")
             if not expected or not hmac.compare_digest(sent, expected):
                 flash("Your session expired. Please try again.", "error")
@@ -176,7 +177,7 @@ def create_app(env=None, start_background=True):
     def form_defaults(kind="internal"):
         return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "letsencrypt" if config.letsencrypt_enabled else "internal",
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
-                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "sign_in_restricted": False, "sign_in_users": [], "security_headers": True, "notes": ""}
+                "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "sign_in_restricted": False, "sign_in_users": [], "path_rules": "", "security_headers": True, "notes": ""}
 
     def posted_values():
         f = request.form
@@ -190,12 +191,15 @@ def create_app(env=None, start_background=True):
                 "require_sign_in": bool(f.get("require_sign_in")),
                 "sign_in_restricted": f.get("sign_in_who") == "some",
                 "sign_in_users": [e for e in f.getlist("sign_in_users") if e],
+                "path_rules": f.get("path_rules", ""),
                 "security_headers": bool(f.get("security_headers"))}
 
     def render_form(values, errors=None, editing=None, preview=None):
         for key in ("extra_sans", "allowed_sources"):
             if isinstance(values.get(key), list):
                 values = {**values, key: "\n".join(values[key])}
+        if isinstance(values.get("path_rules"), list):
+            values = {**values, "path_rules": "\n".join(tc.format_rule(r) for r in values["path_rules"])}
         return render_template("app_form.html", v=values, errors=errors or {}, editing=editing, preview=preview,
                                list_options=list_options(), people_options=people_options())
 
@@ -242,6 +246,48 @@ def create_app(env=None, start_background=True):
         resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
         resp.headers["Referrer-Policy"] = "no-referrer"
         return resp
+
+    @app.route(tc.SIGNIN_PATH + "/<slug>", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    def signin_check(slug):
+        """forwardAuth for path rules (optional, sign-in=401, sign-in=/path): is the visitor signed in?
+
+        Asks oauth2-proxy's /oauth2/auth with the visitor's cookies. Signed in, and allowed to open
+        this app: 200 with X-Auth-Request-Email/User, which Traefik copies onto the request. Otherwise
+        optional answers 200 without them, 401 answers 401, and redirect sends the browser to the path.
+        If oauth2-proxy can't be asked, optional still lets the visitor in, as no one; the others
+        answer 503, never letting anyone through."""
+        mode = request.args.get("mode", "")
+        target = request.args.get("to", "")
+        if mode not in ("optional", "401", "redirect") or (
+                mode == "redirect" and (not target.startswith("/") or target.startswith("//") or "\\" in target)):
+            return Response("Bad sign-in check\n", 400, mimetype="text/plain")
+        email = user = ""
+        error = not (config.sso_enabled and config.sso_auth_url)
+        if not error:
+            try:
+                r = requests.get(f"{config.sso_auth_url}/oauth2/auth", timeout=5, allow_redirects=False,
+                                 headers={"Cookie": request.headers.get("Cookie", ""),
+                                          "X-Forwarded-Proto": request.headers.get("X-Forwarded-Proto", "https"),
+                                          "X-Forwarded-Host": request.headers.get("X-Forwarded-Host", "")})
+                if r.status_code in (200, 202):
+                    email = r.headers.get("X-Auth-Request-Email", "")
+                    user = r.headers.get("X-Auth-Request-User", "")
+                elif r.status_code not in (401, 403):
+                    error = True
+            except requests.RequestException:
+                error = True
+        if email and manager.may_open(slug, email)[0]:
+            resp = Response(status=200)
+            resp.headers["X-Auth-Request-Email"] = email.strip().lower()
+            resp.headers["X-Auth-Request-User"] = user or email
+            return resp
+        if mode == "optional":
+            return Response(status=200)
+        if error:
+            return Response("Sign-in is not available right now\n", 503, mimetype="text/plain")
+        if mode == "401":
+            return Response("Sign in to see this\n", 401, mimetype="text/plain")
+        return redirect(target, code=302)
 
     @app.route("/apps/new", methods=["GET", "POST"])
     def app_new():

@@ -1,6 +1,7 @@
 """Render the Traefik dynamic config files the file provider loads."""
 
 import hashlib
+from urllib.parse import urlencode
 
 import yaml
 
@@ -38,14 +39,88 @@ SSO_STRIPPED = [*SSO_HEADERS, "X-Auth-Request-Groups", "X-Auth-Request-Preferred
 # it needs no new Traefik config. If the manager is down, Traefik answers 500: closed, not open.
 ACCESS_PATH = "/_access"
 
+# Path rules: one app, different access per path. Each rule becomes its own router, ahead of the
+# app's main router, which still handles every path no rule matches. Rules are tried in order.
+#   open      no sign-in
+#   optional  no sign-in needed, but a signed-in user is passed on (X-Auth-Request-*)
+#   sign-in   must be signed in; "unauth" says what happens otherwise: "google" (sign in now),
+#             "401", or a local path to redirect to (e.g. "/games")
+#   deny      403 for everyone the rule matches
+# "from" limits a rule to clients in the named IP lists (Traefik's ClientIP); others go on to the
+# next rule. "read_only" answers 403 to anything but GET and HEAD on the rule's paths.
+RULE_ACCESS = ("open", "optional", "sign-in", "deny")
+# optional, 401 and redirect need a yes/no on the sign-in cookie without the trip to Google that
+# oauth2-proxy's own forwardAuth answer is. The manager asks oauth2-proxy (/oauth2/auth) and answers
+# Traefik: 200 with the user's headers, or 401 / a redirect / 200 without them.
+SIGNIN_PATH = "/_signin"
+STRIP_IDENTITY = "strip-identity"
+DENY_MIDDLEWARE = "deny-all"
+RULE_PRIORITY = 100000
+OAUTH2_PRIORITY = 200000
+
 
 def requires_sign_in(app):
     return bool(app.get("require_sign_in"))
 
 
+def path_rules(app):
+    return list(app.get("path_rules") or [])
+
+
+def rules_use_sign_in(app):
+    """True when a path rule needs oauth2-proxy (anything but open and deny)."""
+    return any(r.get("access") in ("optional", "sign-in") for r in path_rules(app))
+
+
+def path_matcher(paths):
+    """Traefik matcher for rule paths. "/" is everything, "/x/" is the prefix, "/x" is /x and below."""
+    parts = []
+    for p in paths:
+        if p == "/" or p.endswith("/"):
+            parts.append(f"PathPrefix(`{p}`)")
+        else:
+            parts.append(f"Path(`{p}`) || PathPrefix(`{p}/`)")
+    return " || ".join(parts)
+
+
+def path_matches(paths, path):
+    """Python twin of path_matcher, for checks in the manager."""
+    return any(path.startswith(p) if (p == "/" or p.endswith("/")) else (path == p or path.startswith(p + "/"))
+               for p in paths)
+
+
+def rule_sources(rule, ip_lists):
+    """The CIDRs a rule's "from" lists hold. A list that no longer exists matches no one."""
+    out = []
+    for name in rule.get("from") or []:
+        if name not in ip_lists:
+            return list(DENY_ALL)
+        out.extend(ip_lists[name])
+    return list(dict.fromkeys(out))
+
+
+def format_rule(rule):
+    """One rule as a line of the app form's text box (the inverse of validate.parse_path_rules)."""
+    words = list(rule["paths"])
+    if rule.get("from"):
+        words.append("from=" + ",".join(rule["from"]))
+    access = rule["access"]
+    if access == "sign-in" and rule.get("unauth", "google") != "google":
+        access = f"sign-in={rule['unauth']}"
+    words.append(access)
+    if rule.get("read_only"):
+        words.append("read-only")
+    return " ".join(words)
+
+
+def uses_sign_in(app):
+    """True when any route of the app asks oauth2-proxy: the whole app, or one of its path rules."""
+    return requires_sign_in(app) or rules_use_sign_in(app)
+
+
 def restricts_sign_in(app):
     """True when only the people picked for this app may open it."""
-    return requires_sign_in(app) and bool(app.get("sign_in_restricted"))
+    return uses_sign_in(app) and bool(app.get("sign_in_restricted"))
 
 
 def sso_middlewares(auth_url):
@@ -117,16 +192,23 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
     resolver is the name of Traefik's ACME cert resolver, used for Let's Encrypt apps.
     access_url is the manager's address, which decides who may open an app restricted to some people."""
     slug = app["slug"]
-    middlewares = []
+    ip_lists = ip_lists or {}
+    rules = path_rules(app)
+    guards = []
     if app.get("lan_only", True):
-        middlewares.append("lan-only@file")
-    sources = effective_sources(app, ip_lists or {})
+        guards.append("lan-only@file")
+    sources = effective_sources(app, ip_lists)
     if sources:
-        middlewares.append(f"{slug}-sources@file")
+        guards.append(f"{slug}-sources@file")
+    middlewares = list(guards)
+    if rules:
+        # Some routes of this app pass a user on and some don't, so no route may let a client's own
+        # X-Auth-Request-* headers through.
+        middlewares.append(f"{STRIP_IDENTITY}@file")
     if requires_sign_in(app):
         middlewares.append(f"{SSO_MIDDLEWARE}@file")
     restricted = restricts_sign_in(app)
-    if restricted:
+    if restricted and requires_sign_in(app):
         middlewares.append(f"{slug}-access@file")
     start_path = app.get("start_path")
     if start_path:
@@ -157,18 +239,71 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
         http.setdefault("middlewares", {})[f"{slug}-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
     if restricted:
         # Without the manager's address the check points nowhere, so Traefik refuses requests.
-        base = (access_url or "http://manager-address-unset.invalid").rstrip("/")
+        base = _manager_base(access_url)
         http.setdefault("middlewares", {})[f"{slug}-access"] = {"forwardAuth": {"address": f"{base}{ACCESS_PATH}/{slug}"}}
     if start_path:
         # Only the bare root is redirected; every other path reaches the backend unchanged.
         http.setdefault("middlewares", {})[f"{slug}-start"] = {"redirectRegex": {
             "regex": r"^(https?://[^/]+)/?$", "replacement": "${1}" + start_path, "permanent": False}}
 
+    if rules:
+        _render_rules(app, rules, guards, router, ip_lists, access_url, http)
+
     data = {"http": http}
     cert = app.get("cert")
     if cert and not uses_letsencrypt(app):
         data["tls"] = {"certificates": [{"certFile": cert["cert_path"], "keyFile": cert["key_path"]}]}
     return _dump(data, slug)
+
+
+def _manager_base(access_url):
+    return (access_url or "http://manager-address-unset.invalid").rstrip("/")
+
+
+def _render_rules(app, rules, guards, main, ip_lists, access_url, http):
+    """Routers for the app's path rules, ahead of the main router (which keeps every other path)."""
+    slug = app["slug"]
+    host = host_rule([app["fqdn"], *app.get("extra_sans", [])])
+    routers, mws = http["routers"], http.setdefault("middlewares", {})
+    tail = ["secure-headers@file"] if app.get("security_headers", True) else []
+
+    def router(rule, middlewares, priority):
+        return {"rule": rule, "entryPoints": ["websecure"], "service": slug, "priority": priority,
+                "middlewares": middlewares, "tls": dict(main["tls"])}
+
+    if rules_use_sign_in(app):
+        # The sign-in pages on the app's own name, so the app can link to /oauth2/start and
+        # /oauth2/sign_out without knowing the domain. Google still returns to auth.<SSO_DOMAIN>.
+        r = router(f"({host}) && PathPrefix(`/oauth2/`)", [*guards, f"{STRIP_IDENTITY}@file", *tail], OAUTH2_PRIORITY)
+        r["service"] = f"{SSO_SIGNIN}@file"
+        routers[f"{slug}-oauth2"] = r
+
+    for i, rule in enumerate(rules, start=1):
+        name = f"{slug}-rule{i}"
+        match = f"({host}) && ({path_matcher(rule['paths'])})"
+        if rule.get("from"):
+            match += " && (" + " || ".join(f"ClientIP(`{c}`)" for c in rule_sources(rule, ip_lists)) + ")"
+        chain = [*guards, f"{STRIP_IDENTITY}@file"]
+        access, unauth = rule["access"], rule.get("unauth", "google")
+        if access == "deny":
+            chain.append(f"{DENY_MIDDLEWARE}@file")
+        elif access == "sign-in" and unauth == "google":
+            chain.append(f"{SSO_MIDDLEWARE}@file")
+            if restricts_sign_in(app):
+                chain.append(f"{slug}-access@file")
+        elif access in ("optional", "sign-in"):
+            query = {"mode": "optional"} if access == "optional" else (
+                {"mode": "401"} if unauth == "401" else {"mode": "redirect", "to": unauth})
+            mws[f"{name}-auth"] = {"forwardAuth": {
+                "address": f"{_manager_base(access_url)}{SIGNIN_PATH}/{slug}?{urlencode(query)}",
+                "authResponseHeaders": list(SSO_HEADERS)}}
+            chain.append(f"{name}-auth@file")
+        priority = RULE_PRIORITY - 10 * i
+        routers[name] = router(match, [*chain, *tail], priority)
+        if rule.get("read_only"):
+            # Same paths, any other method: refused before the rule's own router sees it.
+            write = f"{match} && !(Method(`GET`) || Method(`HEAD`))"
+            routers[f"{name}-write"] = router(write, [*guards, f"{DENY_MIDDLEWARE}@file"], priority + 1)
 
 
 ROOT_CA_DOWNLOAD = "/status/root_ca.crt"
@@ -191,6 +326,10 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
             "referrerPolicy": "same-origin",
         }},
     }
+    # Used by apps with path rules: every one of their routes drops identity headers a client sent,
+    # and a "deny" rule (or the write half of a read-only one) answers 403.
+    middlewares[STRIP_IDENTITY] = {"headers": {"customRequestHeaders": {h: "" for h in SSO_STRIPPED}}}
+    middlewares[DENY_MIDDLEWARE] = {"ipAllowList": {"sourceRange": list(DENY_ALL)}}
     if config.sso_enabled:
         middlewares.update(sso_middlewares(config.sso_auth_url))
     guards = ["lan-only"]

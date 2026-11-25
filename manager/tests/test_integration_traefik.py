@@ -57,9 +57,9 @@ class Stack:
     def __init__(self, tmp_path, pki_session, **env_overrides):
         self.https, self.api_port = free_port(), free_port()
         self.app_backend, self.mgr_backend = backend("app-backend"), backend("manager-backend")
-        env = make_env(
-            tmp_path, pki_session, LAN_CIDRS="127.0.0.0/8", MANAGER_BACKEND=f"http://127.0.0.1:{self.mgr_backend.server_port}",
-            TRAEFIK_API_URL=f"http://127.0.0.1:{self.api_port}", TRAEFIK_HTTPS_PORT=str(self.https), **env_overrides)
+        env = make_env(tmp_path, pki_session, **{
+            "LAN_CIDRS": "127.0.0.0/8", "MANAGER_BACKEND": f"http://127.0.0.1:{self.mgr_backend.server_port}",
+            "TRAEFIK_API_URL": f"http://127.0.0.1:{self.api_port}", "TRAEFIK_HTTPS_PORT": str(self.https), **env_overrides})
         self.env, self.root = env, pki_session["root"]
         os.makedirs(env["TM_DYNAMIC_DIR"], exist_ok=True)
         self.proc = subprocess.Popen(
@@ -88,7 +88,7 @@ class Stack:
         return Manager(config, ca, err, st.Store(config.data_dir), st.ActionLog(config.data_dir),
                        TraefikAPI(config.traefik_api_url))
 
-    def get(self, host, path="/", verify_host=True, headers=None):
+    def get(self, host, path="/", verify_host=True, headers=None, method="GET"):
         """(status, body, serial of the cert served), verified against the root CA with SNI=host.
 
         verify_host=False still checks the chain but not the name, for hosts Traefik no longer
@@ -99,7 +99,8 @@ class Stack:
             with ctx.wrap_socket(raw, server_hostname=host) as tls:
                 serial = format(x509.load_der_x509_certificate(tls.getpeercert(binary_form=True)).serial_number, "x")
                 extra = "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items())
-                tls.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n".encode())
+                tls.sendall(f"{method} {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Content-Length: 0\r\n"
+                            "Connection: close\r\n\r\n".encode())
                 data = b""
                 while chunk := tls.recv(4096):
                     data += chunk
@@ -447,3 +448,97 @@ def test_login_against_real_traefik(stack):
 
     m.set_login([], "turned off the login for")
     stack.until(lambda: stack.get(host)[0] == 200)
+
+
+def fake_signin_check():
+    """Stands in for the manager's /_signin/<slug>: the same answers, from the same cookie."""
+    from urllib.parse import parse_qs, urlparse
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def answer(self):
+            q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+            mode = q.get("mode")
+            if "_oauth2_proxy=good" in (self.headers.get("Cookie") or ""):
+                self.send_response(200)
+                self.send_header("X-Auth-Request-Email", "me@example.com")
+                self.send_header("X-Auth-Request-User", "1234")
+            elif mode == "optional":
+                self.send_response(200)
+            elif mode == "401":
+                self.send_response(401)
+            else:
+                self.send_response(302)
+                self.send_header("Location", q["to"])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        do_GET = do_POST = do_HEAD = answer
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+PATH_RULES = """\
+/admin /api/admin/  from=home  sign-in
+/admin /api/admin/  deny
+/games /assets/  open  read-only
+/  from=home  optional  read-only
+/api/  sign-in=401  read-only
+/  sign-in=/games  read-only
+"""
+
+
+def test_path_rules_against_real_traefik(tmp_path, pki_session):
+    auth, signin = fake_oauth2_proxy(), fake_signin_check()
+    stack = Stack(tmp_path, pki_session, SSO_ENABLED="true", SSO_DOMAIN="gjecorp.net",
+                  SSO_AUTH_URL=f"http://127.0.0.1:{auth.server_port}",
+                  MANAGER_BACKEND=f"http://127.0.0.1:{signin.server_port}")
+    try:
+        m = stack.manager
+        m.startup()
+        assert m.startup_error is None
+        m.create_ip_list({"name": "home", "sources": "192.0.2.0/24"})  # the test client (127.0.0.1) is outside
+        form = {**FORM, "slug": "bg", "fqdn": "bg.gjecorp.net", "kind": "external", "lan_only": "",
+                "backend_url": f"http://127.0.0.1:{stack.app_backend.server_port}", "path_rules": PATH_RULES}
+        result = m.create_app(form)
+        assert result.verified, result.detail
+        good, forged = {"Cookie": "_oauth2_proxy=good"}, {"X-Auth-Request-Email": "evil@example.com"}
+        get = lambda path, **kw: stack.get("bg.gjecorp.net", path, **kw)  # noqa: E731
+
+        # From outside: the collection is open, with no user even when one is claimed; writes are refused.
+        status, body, _ = get("/games", headers=forged)
+        assert status == 200 and "user=None" in body
+        assert get("/assets/x.css")[0] == 200
+        assert get("/games", method="POST")[0] == 403
+        # Everything else needs a sign-in: pages go to /games, the API answers 401.
+        assert get("/")[0] == 302
+        assert get("/player?id=1", headers=forged)[0] == 302
+        assert get("/api/stats")[0] == 401
+        status, body, _ = get("/", headers={**good, **forged})
+        assert status == 200 and "user=me@example.com" in body
+        assert get("/", method="POST", headers=good)[0] == 403
+        # Admin never from outside, signed in or not.
+        assert get("/admin", headers=good)[0] == 403
+        assert get("/api/admin/plays", method="POST", headers=good)[0] == 403
+        # The sign-in pages are on the app's own name.
+        assert get("/oauth2/start")[0] == 302
+
+        # From home: everything readable without signing in; admin needs Google.
+        m.update_ip_list("home", {"sources": "127.0.0.1"})
+        stack.until(lambda: get("/")[0] == 200)
+        status, body, _ = get("/", headers=forged)
+        assert status == 200 and "user=None" in body
+        status, body, _ = get("/player?id=1", headers=good)
+        assert status == 200 and "user=me@example.com" in body
+        assert get("/api/stats", method="POST")[0] == 403
+        assert get("/admin")[0] == 302  # to Google
+        status, body, _ = get("/admin", headers=good)
+        assert status == 200 and "user=me@example.com" in body
+        assert get("/api/admin/plays", method="POST", headers=good)[0] not in (401, 403)
+    finally:
+        stack.close()
+        auth.shutdown()
+        signin.shutdown()

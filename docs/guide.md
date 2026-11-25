@@ -353,6 +353,9 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 | `OAUTH_CLIENT_ID` | From step 1 | |
 | `OAUTH_CLIENT_SECRET` | From step 1 | Never commit this |
 | `SSO_AUTH_CERT` | `internal` or `letsencrypt` | Optional, default `internal`. See below |
+| `SSO_AUTH_HOST` | `auth-home.lab.example.com` | Optional, default `auth.<SSO_DOMAIN>`. The sign-in page's name; must be under `SSO_DOMAIN`. See [two stacks](#two-stacks-under-one-domain) |
+| `OAUTH_COOKIE_NAME` | `_oauth2_proxy_home` | Optional, default `_oauth2_proxy`. See [two stacks](#two-stacks-under-one-domain) |
+| `OAUTH_COOKIE_SECRET` | | Optional, leave empty. Replaces the generated cookie secret; only to share one sign-in between stacks |
 
 4. **Check**: the Status page shows *Google sign-in: available*. The manager's certificate now also covers `auth.lab.example.com`, and the route to oauth2-proxy is in place; there is no app to add for it.
 5. **Who may sign in**: under **Settings**, *Google sign-in: who may sign in*, enter the Google accounts, one per line, and save. Until then a banner reminds you that nobody can sign in.
@@ -368,8 +371,8 @@ On the first deploy oauth2-proxy may restart once or twice: it waits for the man
 - **Cookie secret**: oauth2-proxy encrypts its sign-in cookie with `<TM_ROOT>/oauth2-proxy/cookie-secret`, which the manager makes on first start (32 random bytes, readable only by oauth2-proxy) and keeps, so a redeploy signs nobody out. To sign everyone out, for example if the secret may have leaked, delete the file and redeploy. An `OAUTH_COOKIE_SECRET` from earlier versions is no longer used and can be removed from the stack.
 - While the Google consent screen is in *Testing*, Google only lets in its test users, so a new person must be added there too. To skip that, publish the consent screen (*In production*): with only the `openid email profile` scopes, Google normally asks for no review. The list in Settings then decides alone.
 - An app gets the user from `X-Auth-Request-Email`. Only trust it when the app is reached through Traefik: an app with a published host port can be called around the gateway with any header.
-- Sign-in needs internet access to Google, from the browser and from this host. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out`.
-- **Certificate for `auth.<SSO_DOMAIN>`.** Every signed-in browser opens this page, so it must be trusted:
+- Sign-in needs internet access to Google, from the browser and from this host. Sign out at `https://auth.<SSO_DOMAIN>/oauth2/sign_out` (or your `SSO_AUTH_HOST`).
+- **Certificate for the sign-in page** (`auth.<SSO_DOMAIN>` or `SSO_AUTH_HOST`). Every signed-in browser opens this page, so it must be trusted:
   - `SSO_AUTH_CERT=internal` (default): the name is added to the manager's certificate. Devices need the root certificate, as for internal-CA apps.
   - `SSO_AUTH_CERT=letsencrypt`: Traefik gets a Let's Encrypt certificate for it, so any device can sign in. Needs [Let's Encrypt](#lets-encrypt-certificates) set up, with a DNS token that covers `SSO_DOMAIN`'s zone (a Cloudflare token limited to another zone fails). The name then comes off the manager's certificate, because Traefik only asks Let's Encrypt for names no loaded certificate covers. For the first minute or two, until the certificate arrives, Traefik serves its default certificate; Traefik's log (search for `acme`) shows problems.
 - The cookie is valid for every app under `SSO_DOMAIN`, so each of them receives it.
@@ -377,6 +380,27 @@ On the first deploy oauth2-proxy may restart once or twice: it waits for the man
 - `SSO_ENABLED=false` keeps sign-in off in the manager even with the profile on; `SSO_ENABLED=true` turns it on without starting oauth2-proxy here, for an oauth2-proxy you run elsewhere (set `SSO_AUTH_URL` to it).
 - Before this, oauth2-proxy was a separate stack (`oauth2-proxy/docker-compose.yml`). If you deployed it, remove that stack before redeploying this one (both use the container name `oauth2-proxy`), and delete any `auth` app you added by hand: the manager now owns that name.
 - The manager's own GUI is not behind Google sign-in; it keeps the LAN allow-list and its own optional [login](#login).
+
+### Two stacks under one domain
+
+For example one stack at home for internal apps and one in a DMZ for apps published on the internet, both with `SSO_DOMAIN=lab.example.com`. Out of the box both use the cookie `_oauth2_proxy` for the whole domain and the sign-in page `auth.lab.example.com`, each with its own cookie secret. They then overwrite each other's sign-in, and Google's return trip can reach the wrong stack, so signing in keeps failing.
+
+Keep them separate (recommended):
+
+| | Home | DMZ |
+|---|---|---|
+| `SSO_AUTH_HOST` | `auth-home.lab.example.com` | `auth.lab.example.com` |
+| `OAUTH_COOKIE_NAME` | `_oauth2_proxy_home` | `_oauth2_proxy_dmz` |
+| `OAUTH_COOKIE_SECRET` | empty | empty |
+
+1. Set the variables on each stack and redeploy.
+2. DNS: point each sign-in name at its own stack (for the home one, a record in your home DNS is enough).
+3. Google Cloud Console, the OAuth client: add both redirect URIs, `https://auth-home.lab.example.com/oauth2/callback` and `https://auth.lab.example.com/oauth2/callback`. One client can serve both stacks.
+4. Each stack keeps its own list of who may sign in (Settings), and you sign in once per stack. Google remembers you, so the second sign-in is usually one click.
+
+Why not one shared sign-in: it needs the same `OAUTH_COOKIE_SECRET` on both, and anyone who has that value can make a valid sign-in cookie for any address. If the DMZ stack is broken into, the attacker could then sign in to your home apps. Only share it between stacks you trust equally.
+
+Even kept separate, both cookies are valid for all of `SSO_DOMAIN`, so a DMZ app's server receives the home cookie when a signed-in home user visits it. To avoid that, put the home apps under their own subdomain (e.g. `SSO_DOMAIN=home.lab.example.com`), so the home cookie is only sent there.
 
 ## Path rules
 

@@ -54,11 +54,14 @@ class Config:
         self.sso_enabled = _bool(env.get("SSO_ENABLED"), "sso" in profiles)
         # Folder holding oauth2-proxy's emails.txt: who may sign in, edited on the Settings page.
         self.sso_dir = env.get("TM_SSO_DIR", "/oauth2-proxy")
-        # Certificate for auth.<SSO_DOMAIN>: the internal CA (on the manager's own certificate), or
+        # Certificate for the sign-in page: the internal CA (on the manager's own certificate), or
         # Let's Encrypt, so devices without the root certificate can sign in too.
         self.sso_auth_cert = env.get("SSO_AUTH_CERT", "").strip().lower() or "internal"
         self.sso_domain = env.get("SSO_DOMAIN", "").strip().lower().lstrip(".").rstrip(".")
         self.sso_auth_url = env.get("SSO_AUTH_URL", "http://oauth2-proxy:4180").strip().rstrip("/")
+        # The sign-in page's name; default auth.<SSO_DOMAIN>. Set it when two stacks share SSO_DOMAIN,
+        # so each one's Google callback reaches its own oauth2-proxy.
+        self.sso_auth_host_setting = env.get("SSO_AUTH_HOST", "").strip().lower().rstrip(".")
         self.allowed_domains = [d.lower().lstrip(".").rstrip(".") for d in _split(env.get("ALLOWED_DOMAINS"))]
         self.lan_cidrs = _split(env.get("LAN_CIDRS"))
         self.ca_cert_file = env.get("CA_CERT_FILE", "").strip() or "intermediate_ca.crt"
@@ -154,6 +157,14 @@ class Config:
             elif self.sso_auth_cert == "letsencrypt" and not self.letsencrypt_enabled:
                 e.append("SSO_AUTH_CERT=letsencrypt needs Let's Encrypt set up (LETSENCRYPT_ENABLED=true "
                          "and the DNS provider's credentials)")
+            host = self.sso_auth_host_setting
+            if host and not HOSTNAME_RE.match(host):
+                e.append(f"SSO_AUTH_HOST {host!r} is not a valid lowercase hostname")
+            elif host and self.sso_domain and not in_domains(host, [self.sso_domain]):
+                e.append(f"SSO_AUTH_HOST {host!r} must be under SSO_DOMAIN ({self.sso_domain}), "
+                         "where the sign-in cookie is set")
+            elif host and host == self.manager_fqdn:
+                e.append("SSO_AUTH_HOST must not be the manager's own name (MANAGER_FQDN)")
             parsed = urlparse(self.sso_auth_url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.path not in ("", "/"):
                 e.append(f"SSO_AUTH_URL {self.sso_auth_url!r} must look like http://oauth2-proxy:4180")
@@ -161,6 +172,8 @@ class Config:
     @property
     def sso_auth_host(self):
         """The sign-in route: Google sends the browser back to https://<this>/oauth2/callback."""
+        if self.sso_auth_host_setting:
+            return self.sso_auth_host_setting
         return f"auth.{self.sso_domain}" if self.sso_domain else ""
 
     @property

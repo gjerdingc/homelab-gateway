@@ -26,7 +26,7 @@ DEFAULT_RESOLVER = "letsencrypt"
 # the browser to Google. Defined in _core.yml only when SSO_ENABLED is on; an app that still asks for
 # it after that is switched off gets a router error from Traefik (closed), not an open route.
 SSO_MIDDLEWARE = "sso"
-# Router and service for auth.<SSO_DOMAIN>, where Google sends the browser back after sign-in.
+# Router and service for the sign-in page (auth.<SSO_DOMAIN> or SSO_AUTH_HOST), where Google sends the browser back after sign-in.
 SSO_SIGNIN = "sso-signin"
 SSO_HEADERS = ["X-Auth-Request-User", "X-Auth-Request-Email"]
 SSO_STRIPPED = [*SSO_HEADERS, "X-Auth-Request-Groups", "X-Auth-Request-Preferred-Username",
@@ -273,7 +273,7 @@ def _render_rules(app, rules, guards, main, ip_lists, access_url, http):
 
     if rules_use_sign_in(app):
         # The sign-in pages on the app's own name, so the app can link to /oauth2/start and
-        # /oauth2/sign_out without knowing the domain. Google still returns to auth.<SSO_DOMAIN>.
+        # /oauth2/sign_out without knowing the domain. Google still returns to the sign-in page.
         r = router(f"({host}) && PathPrefix(`/oauth2/`)", [*guards, f"{STRIP_IDENTITY}@file", *tail], OAUTH2_PRIORITY)
         r["service"] = f"{SSO_SIGNIN}@file"
         routers[f"{slug}-oauth2"] = r

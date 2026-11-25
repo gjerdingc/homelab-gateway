@@ -591,6 +591,15 @@ def test_sign_in_host_is_on_the_manager_cert_and_reserved(sso_manager):
     assert m.get("_manager")["extra_sans"] == ["auth.oplassen.net"]
 
 
+def test_own_sign_in_page_name_goes_on_the_manager_cert(sso_manager):
+    m = sso_manager
+    first = m.get("_manager")["cert"]["serial"]
+    m.config.sso_auth_host_setting = "auth-home.oplassen.net"
+    assert m.ensure_manager_cert() is not None
+    assert m.get("_manager")["extra_sans"] == ["auth-home.oplassen.net"]
+    assert m.get("_manager")["cert"]["serial"] != first
+
+
 def test_turning_sign_in_on_later_reissues_the_manager_cert(manager):
     manager.startup()
     first = manager.get("_manager")["cert"]["serial"]

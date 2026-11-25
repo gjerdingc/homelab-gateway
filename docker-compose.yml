@@ -129,13 +129,15 @@ services:
       # Offer Let's Encrypt on the app form. Set ACME_DNS_PROVIDER and its credentials first.
       LETSENCRYPT_ENABLED: ${LETSENCRYPT_ENABLED:-false}
       # Google sign-in: on when COMPOSE_PROFILES includes sso (which also starts oauth2-proxy below).
-      # The manager then offers "Require Google sign-in" on the app form, routes auth.<SSO_DOMAIN> to
+      # The manager then offers "Require Google sign-in" on the app form, routes the sign-in page (auth.<SSO_DOMAIN>) to
       # oauth2-proxy and keeps its allow-list (Settings page). SSO_ENABLED=false forces it off.
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
       SSO_ENABLED: ${SSO_ENABLED:-}
       SSO_DOMAIN: ${SSO_DOMAIN:-}
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
-      # Certificate for auth.<SSO_DOMAIN>: internal (default) or letsencrypt (needs LETSENCRYPT_ENABLED)
+      # Name of the sign-in page; default auth.<SSO_DOMAIN>. Give each stack its own when two share SSO_DOMAIN.
+      SSO_AUTH_HOST: ${SSO_AUTH_HOST:-}
+      # Certificate for the sign-in page: internal (default) or letsencrypt (needs LETSENCRYPT_ENABLED)
       SSO_AUTH_CERT: ${SSO_AUTH_CERT:-internal}
     volumes:
       - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic
@@ -154,7 +156,7 @@ services:
 
   # Google sign-in for the apps you pick. Only started with COMPOSE_PROFILES=sso; needs
   # SSO_DOMAIN and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).
-  # No host port: Traefik reaches it as http://oauth2-proxy:4180, browsers through auth.<SSO_DOMAIN>.
+  # No host port: Traefik reaches it as http://oauth2-proxy:4180, browsers through auth.<SSO_DOMAIN> (or SSO_AUTH_HOST).
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
     container_name: oauth2-proxy
@@ -166,10 +168,14 @@ services:
       OAUTH2_PROXY_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
       OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
       # Encrypts the sign-in cookie. Made by the manager on first start and kept; delete the file and
-      # redeploy to sign everyone out.
+      # redeploy to sign everyone out. OAUTH_COOKIE_SECRET, when set, is used instead of the file:
+      # only for stacks that should share one sign-in (anyone with it can forge a sign-in for all of them).
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH_COOKIE_SECRET:-}
       OAUTH2_PROXY_COOKIE_SECRET_FILE: /etc/oauth2-proxy/cookie-secret
+      # Give each stack its own name when two share SSO_DOMAIN, so their cookies don't overwrite each other.
+      OAUTH2_PROXY_COOKIE_NAME: ${OAUTH_COOKIE_NAME:-_oauth2_proxy}
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
-      OAUTH2_PROXY_REDIRECT_URL: https://auth.${SSO_DOMAIN:-}/oauth2/callback
+      OAUTH2_PROXY_REDIRECT_URL: https://${SSO_AUTH_HOST:-auth.${SSO_DOMAIN:-}}/oauth2/callback
       # One sign-in for every app under the domain
       OAUTH2_PROXY_COOKIE_DOMAINS: .${SSO_DOMAIN:-}
       OAUTH2_PROXY_WHITELIST_DOMAINS: .${SSO_DOMAIN:-}

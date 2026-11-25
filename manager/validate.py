@@ -5,7 +5,7 @@ import re
 from urllib.parse import urlparse
 
 from config import HOSTNAME_RE, in_domains
-from traefik_config import CERT_SOURCES
+from traefik_config import CERT_SOURCES, format_rule, path_matches
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 # internal: a container on the proxy network, reached by container name.
@@ -139,6 +139,96 @@ def validate_access(form, ip_list_names):
     return {"ip_lists": ip_lists, "allowed_sources": allowed_sources or []}, errors
 
 
+# A rule path: plain URL path characters only, so it is safe inside a Traefik rule's backticks.
+RULE_PATH_RE = re.compile(r"^/[A-Za-z0-9._~/-]{0,199}$")
+MAX_RULES = 30
+MAX_RULE_PATHS = 20
+
+
+def _clean_path(p):
+    """The path if it is a safe rule path, else None."""
+    if not RULE_PATH_RE.match(p) or "//" in p or any(seg in (".", "..") for seg in p.split("/")):
+        return None
+    return p
+
+
+def parse_path_rules(text, ip_list_names):
+    """The app form's path rules, one per line: paths, then words.
+
+        /admin /api/admin/  from=home  sign-in
+        /games /assets/     open  read-only
+        /api/               sign-in=401  read-only
+        /                   sign-in=/games  read-only
+
+    Access (one of): open, optional, sign-in (send to Google), sign-in=401, sign-in=/path (redirect),
+    deny. from=<list>[,<list>] limits the rule to clients in those IP lists. read-only refuses
+    every method but GET and HEAD. Blank lines and lines starting with # are skipped.
+    Returns (rules, errors) where errors is a list of messages."""
+    rules, errors = [], []
+    lines = (text or "").splitlines()
+    for n, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        where = f"Line {n}"
+        paths, lists, access, unauth, read_only, bad = [], [], None, "google", False, None
+        for word in line.split():
+            low = word.lower()
+            if word.startswith("/"):
+                p = _clean_path(word)
+                if p is None:
+                    bad = f"{where}: {word!r} is not a usable path (letters, digits, - _ . ~ and /)"
+                elif p not in paths:
+                    paths.append(p)
+            elif low.startswith("from="):
+                lists.extend(x for x in low[5:].split(",") if x and x not in lists)
+            elif low == "read-only":
+                read_only = True
+            elif low in ("open", "optional", "deny", "sign-in") or low.startswith("sign-in="):
+                if access:
+                    bad = f"{where}: give one access word, not both {access!r} and {low!r}"
+                access = "sign-in" if low.startswith("sign-in") else low
+                if low.startswith("sign-in="):
+                    target = word[len("sign-in="):]
+                    if target == "401":
+                        unauth = "401"
+                    elif _clean_path(target):
+                        unauth = target
+                    else:
+                        bad = f"{where}: sign-in= takes 401 or a path to send visitors to, e.g. sign-in=/games"
+            else:
+                bad = (f"{where}: {word!r} is not understood. Use paths, from=<list>, one of open, optional, "
+                       "sign-in, sign-in=401, sign-in=/path, deny, and optionally read-only")
+            if bad:
+                break
+        if not bad and not paths:
+            bad = f"{where}: start with the path(s) the rule is for, e.g. /admin"
+        if not bad and not access:
+            bad = f"{where}: say what the rule does: open, optional, sign-in, sign-in=401, sign-in=/path or deny"
+        if not bad and len(paths) > MAX_RULE_PATHS:
+            bad = f"{where}: at most {MAX_RULE_PATHS} paths per rule"
+        if not bad and (unknown := [l for l in lists if l not in ip_list_names]):
+            bad = f"{where}: no IP list named " + ", ".join(repr(l) for l in unknown)
+        if bad:
+            errors.append(bad)
+            continue
+        rule = {"paths": paths, "from": lists, "access": access, "read_only": read_only}
+        if access == "sign-in":
+            rule["unauth"] = unauth
+        rules.append(rule)
+    if len(rules) > MAX_RULES:
+        errors.append(f"At most {MAX_RULES} rules")
+    # A redirect must land on a path an earlier rule lets everyone open, or it would loop.
+    for i, rule in enumerate(rules):
+        target = rule.get("unauth", "google")
+        if target.startswith("/") and not any(
+                r["access"] in ("open", "optional") and not r["from"] and path_matches(r["paths"], target)
+                for r in rules[:i]):
+            errors.append(f"Rule {format_rule(rule)!r}: {target} must be open to everyone in an earlier rule "
+                          "(open or optional, without from=), or visitors would be sent round in circles")
+    return rules, errors
+
+
 def admits(sources, ip):
     """True when the address is inside one of the allow-list entries."""
     addr = ipaddress.ip_address(ip)
@@ -173,7 +263,7 @@ def validate_emails(text):
 SIGN_IN_WHO = ("everyone", "some")
 
 
-def validate_sign_in_users(form, require_sign_in):
+def validate_sign_in_users(form, require_sign_in, rules_text=None):
     """Who may open a sign-in app: everyone who may sign in, or only the people picked.
 
     Returns (fields, errors). The picked people are kept even while sign-in is off, so turning
@@ -185,7 +275,8 @@ def validate_sign_in_users(form, require_sign_in):
     errors = {}
     if bad := [e for e in users if not EMAIL_RE.match(e)]:
         errors["sign_in_users"] = f"Not an email address: {', '.join(bad)}"
-    elif require_sign_in and who == "some" and not users:
+    elif (require_sign_in or re.search(r"(?im)^[^#]*\b(sign-in|optional)\b", rules_text or "")) \
+            and who == "some" and not users:
         errors["sign_in_users"] = "Pick at least one person, or let everyone who can sign in open the app"
     return {"sign_in_restricted": who == "some", "sign_in_users": users}, errors
 
@@ -285,11 +376,25 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
                                          f"cookie is valid: {', '.join(outside)}")
         elif sso_auth_url and backend and _same_endpoint(backend, sso_auth_url):
             errors["require_sign_in"] = "This is the oauth2-proxy route itself; it cannot require sign-in"
-    sign_in, sign_in_errors = validate_sign_in_users(form, require_sign_in)
+    sign_in, sign_in_errors = validate_sign_in_users(form, require_sign_in, form.get("path_rules"))
     errors.update(sign_in_errors)
 
     access, access_errors = validate_access(form, ip_list_names)
     errors.update(access_errors)
+
+    rules, rule_errors = parse_path_rules(form.get("path_rules"), ip_list_names)
+    if rule_errors:
+        errors["path_rules"] = " · ".join(rule_errors)
+    elif any(r["access"] in ("optional", "sign-in") for r in rules):
+        if not sso_domain:
+            errors["path_rules"] = ("optional and sign-in need Google sign-in, which is not set up. Set SSO_ENABLED=true "
+                                    "and SSO_DOMAIN in the stack (see the README).")
+        elif outside := [n for n in [fqdn, *sans] if n and not in_domains(n, [sso_domain])]:
+            errors["path_rules"] = (f"Sign-in only works for names under {sso_domain}, where the sign-in "
+                                    f"cookie is valid: {', '.join(outside)}")
+    if rules and start_path and any(r["paths"] and path_matches(r["paths"], "/") for r in rules):
+        errors.setdefault("path_rules", "A rule for / takes over the start path; leave the start path empty "
+                                        "or keep / out of the rules")
 
     notes = (form.get("notes") or "").strip()
     if len(notes) > 500:
@@ -309,6 +414,7 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
         "require_sign_in": require_sign_in,
         **sign_in,
         **access,
+        "path_rules": rules,
         "security_headers": bool(form.get("security_headers")),
         "notes": notes,
     }

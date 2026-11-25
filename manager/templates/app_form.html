@@ -94,6 +94,12 @@
         {% if errors.get('allowed_sources') %}<p class="error">{{ errors['allowed_sources'] }}</p>{% endif %}
       </div>
     </fieldset>
+    <div class="field{% if errors.get('path_rules') %} has-error{% endif %}">
+      <label for="path_rules">Path rules (optional)</label>
+      <textarea id="path_rules" name="path_rules" rows="5" class="mono" autocapitalize="none" spellcheck="false" placeholder="/admin /api/admin/  from=home  sign-in&#10;/admin /api/admin/  deny&#10;/games /assets/  open  read-only&#10;/  from=home  optional  read-only&#10;/api/  sign-in=401  read-only&#10;/  sign-in=/games  read-only">{{ v.path_rules or '' }}</textarea>
+      <p class="help">Different access for different paths of this app. One rule per line, tried from the top; paths no rule matches follow the settings above. A rule is the paths (<span class="mono">/x</span> is /x and everything under it, <span class="mono">/x/</span> only what is under it, <span class="mono">/</span> everything), then one of <span class="mono">open</span>, <span class="mono">optional</span> (no sign-in needed, but a signed-in user is passed on), <span class="mono">sign-in</span> (send to Google), <span class="mono">sign-in=401</span>, <span class="mono">sign-in=/path</span> (send visitors who aren't signed in there), <span class="mono">deny</span>. Add <span class="mono">from=&lt;IP list&gt;</span> to make a rule apply only to those clients, and <span class="mono">read-only</span> to refuse everything but GET and HEAD. The allowed sources and LAN only above still apply to every rule.</p>
+      {% if errors.get('path_rules') %}<p class="error">{{ errors['path_rules'] }}</p>{% endif %}
+    </div>
     {{ field('notes', 'Notes', v.notes, errors) }}
     <div class="actions">
       <button class="btn btn-primary" type="submit">{{ 'Save and apply' if editing else ('Create service and certificate' if ext else 'Create app and certificate') }}</button>

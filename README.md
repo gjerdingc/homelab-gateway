@@ -9,7 +9,7 @@ One secure front door for your self-hosted web apps. Every app gets its own name
 - **Traefik** in front of all your apps: the only thing that listens on ports 80 and 443.
 - **Traefik Manager**, a web GUI: add an app with a name and a backend, and it issues the certificate, writes the route and checks that it works.
 - **Certificates without setup**: the manager creates its own certificate authority on first start. Or use **Let's Encrypt** (recommended) so every device trusts your apps without installing anything.
-- Optional extras: allow-lists per app, Google sign-in per app, a login for the GUI.
+- Optional extras: allow-lists per app, Google sign-in per app or per path (a public page, the rest after sign-in, an admin part only from home), a login for the GUI.
 
 **You need** a Linux host with Docker (Raspberry Pi, mini PC, VM), ports 80 and 443 free, and a domain or subdomain for your apps (e.g. `lab.example.com`) on a DNS server you control (Pi-hole, AdGuard, your router).
 

@@ -252,3 +252,65 @@ def test_sign_in_people():
     assert fields["sign_in_restricted"] and not errors
     fields, _ = validate_sign_in_users({"sign_in_who": "bogus"}, True)
     assert fields == {"sign_in_restricted": False, "sign_in_users": []}
+
+
+# ---- path rules ----------------------------------------------------------------
+
+from validate import parse_path_rules  # noqa: E402
+import traefik_config as tc  # noqa: E402
+
+RULES_TEXT = """\
+# comment
+/admin /api/admin/  from=home  sign-in
+/admin /api/admin/  deny
+
+/games /assets/  open  read-only
+/  from=home  optional  read-only
+/api/  sign-in=401  read-only
+/  sign-in=/games  read-only
+"""
+
+
+def test_parse_path_rules_and_round_trip():
+    rules, errors = parse_path_rules(RULES_TEXT, ["home"])
+    assert errors == []
+    assert rules[0] == {"paths": ["/admin", "/api/admin/"], "from": ["home"], "access": "sign-in",
+                        "read_only": False, "unauth": "google"}
+    assert rules[2] == {"paths": ["/games", "/assets/"], "from": [], "access": "open", "read_only": True}
+    assert rules[4]["unauth"] == "401" and rules[5]["unauth"] == "/games"
+    text = "\n".join(tc.format_rule(r) for r in rules)
+    assert parse_path_rules(text, ["home"]) == (rules, [])
+    assert tc.format_rule(rules[5]) == "/ sign-in=/games read-only"
+
+
+def test_parse_path_rules_errors():
+    def err(text, lists=("home",)):
+        rules, errors = parse_path_rules(text, list(lists))
+        assert errors, text
+        return errors[0]
+    assert "start with the path" in err("open")
+    assert "say what the rule does" in err("/a")
+    assert "not understood" in err("/a open please")
+    assert "one access word" in err("/a open deny")
+    assert "not a usable path" in err("/a` open")
+    assert "not a usable path" in err("/a/../b open")
+    assert "not a usable path" in err("//x open")
+    assert "no IP list named 'work'" in err("/a from=work open")
+    assert "sign-in= takes" in err("/a sign-in=https://evil.example")
+    assert "sign-in= takes" in err("/a sign-in=//evil.example")
+    # A redirect target must be open to everyone in an earlier rule.
+    assert "round in circles" in err("/ sign-in=/games")
+    assert "round in circles" in err("/games from=home open\n/ sign-in=/games")
+    assert parse_path_rules("/games open\n/ sign-in=/games", [])[1] == []
+
+
+def test_validate_app_path_rules_need_sign_in_set_up():
+    form = {**GOOD, "path_rules": "/ sign-in"}
+    _, errors = validate_app(form, [], ["gjecorp.net"])
+    assert "not set up" in errors["path_rules"]
+    fields, errors = validate_app(form, [], ["gjecorp.net"], sso_domain="gjecorp.net")
+    assert "path_rules" not in errors and fields["path_rules"][0]["access"] == "sign-in"
+    _, errors = validate_app({**form, "path_rules": "/x open\n/y deny"}, [], ["gjecorp.net"])
+    assert "path_rules" not in errors
+    _, errors = validate_app({**form, "path_rules": "/ open", "start_path": "/admin/"}, [], ["gjecorp.net"])
+    assert "start path" in errors["path_rules"]

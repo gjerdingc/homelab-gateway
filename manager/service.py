@@ -127,7 +127,10 @@ class Manager:
         data = self.store.load() if data is None else data
         used = {l["name"]: [] for l in data["ip_lists"]}
         for a in data["apps"]:
-            for name in a.get("ip_lists") or []:
+            names = list(a.get("ip_lists") or [])
+            for rule in a.get("path_rules") or []:
+                names.extend(rule.get("from") or [])
+            for name in dict.fromkeys(names):
                 used.setdefault(name, []).append(a["slug"])
         return used
 
@@ -738,7 +741,7 @@ class Manager:
         return out
 
     def sign_in_apps(self):
-        return [a for a in self.user_apps() if tc.requires_sign_in(a)]
+        return [a for a in self.user_apps() if tc.uses_sign_in(a)]
 
     # ---- who may open which app ---------------------------------------------------
     # Traefik asks on every request to an app restricted to some people, so the answer comes from
@@ -769,7 +772,7 @@ class Manager:
         apps, everyone = self._access_table()
         app = apps.get(slug)
         email = (email or "").strip().lower()
-        if not app or not email or not tc.requires_sign_in(app):
+        if not app or not email or not tc.uses_sign_in(app):
             return False, app
         if not tc.restricts_sign_in(app):
             return email in everyone, app

@@ -304,3 +304,71 @@ def test_sign_in_list_is_not_offered_when_sign_in_is_off(client):
     assert "Google sign-in is off" in client.get("/settings").get_data(as_text=True)
     r = client.post("/settings/sign-in", data={"emails": "me@gmail.com", "csrf_token": token(client, "/settings")})
     assert r.status_code == 404
+
+
+class _AuthAnswer:
+    def __init__(self, status, email=""):
+        self.status_code = status
+        self.headers = {"X-Auth-Request-Email": email, "X-Auth-Request-User": "123"} if email else {}
+
+
+def test_path_rules_form_and_signin_check(client, monkeypatch):
+    mgr = client.tm["manager"]
+    mgr.startup()
+    mgr.config.sso_enabled, mgr.config.sso_domain = True, "gjecorp.net"
+    mgr.set_sso_allowed_emails("me@gmail.com")
+    rules = "/games  open read-only\n/api/ sign-in=401\n/ sign-in=/games"
+    r = client.post("/apps/new", data={**FORM, "path_rules": rules, "csrf_token": token(client)})
+    assert r.status_code == 302
+    assert [x["access"] for x in mgr.get("grafana")["path_rules"]] == ["open", "sign-in", "sign-in"]
+    assert "/ sign-in=/games" in client.get("/apps/grafana/edit").get_data(as_text=True)
+    assert "/games open read-only" in client.get("/apps/grafana").get_data(as_text=True)
+    r = client.post("/apps/grafana/edit", data={**FORM, "path_rules": "/x nonsense", "csrf_token": token(client)})
+    assert r.status_code == 400 and "is not understood" in r.get_data(as_text=True)
+
+    seen = {}
+    answer = {"r": _AuthAnswer(202, "Me@gmail.com")}
+
+    def fake_get(url, **kw):
+        seen["url"], seen["cookie"] = url, kw["headers"]["Cookie"]
+        if isinstance(answer["r"], Exception):
+            raise answer["r"]
+        return answer["r"]
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+    anon = client.application.test_client()
+    mgr.login.save(["admin:$2y$10$abcdefghijklmnopqrstuuJ3nGAvSVQ1u2oG6Lb2X7X9wQq5m1y6W"])
+
+    # Signed in and allowed: 200 with the user, for any method, without login or CSRF.
+    anon.set_cookie("_oauth2_proxy", "abc")
+    r = anon.post("/_signin/grafana?mode=401")
+    assert r.status_code == 200 and r.headers["X-Auth-Request-Email"] == "me@gmail.com"
+    assert seen == {"url": "http://oauth2-proxy:4180/oauth2/auth", "cookie": "_oauth2_proxy=abc"}
+    # Signed in, but no longer on the Settings list: treated as not signed in.
+    mgr.set_sso_allowed_emails("other@gmail.com")
+    r = anon.get("/_signin/grafana?mode=optional")
+    assert r.status_code == 200 and "X-Auth-Request-Email" not in r.headers
+    # Not signed in.
+    answer["r"] = _AuthAnswer(401)
+    assert anon.get("/_signin/grafana?mode=optional").status_code == 200
+    assert anon.get("/_signin/grafana?mode=401").status_code == 401
+    r = anon.get("/_signin/grafana?mode=redirect&to=/games")
+    assert r.status_code == 302 and r.headers["Location"] == "/games"
+    # oauth2-proxy down: optional lets the visitor in as no one, the others never let anyone through.
+    answer["r"] = __import__("requests").ConnectionError("down")
+    r = anon.get("/_signin/grafana?mode=optional")
+    assert r.status_code == 200 and "X-Auth-Request-Email" not in r.headers
+    assert anon.get("/_signin/grafana?mode=401").status_code == 503
+    assert anon.get("/_signin/grafana?mode=redirect&to=/games").status_code == 503
+    # Only local paths, and only the known modes.
+    for q in ("mode=redirect&to=//evil.example", "mode=redirect&to=https://evil.example", "mode=nope", ""):
+        assert anon.get(f"/_signin/grafana?{q}").status_code == 400, q
+
+
+def test_ip_list_used_by_a_path_rule_cannot_be_deleted(client):
+    mgr = client.tm["manager"]
+    mgr.startup()
+    r = client.post("/ip-lists/new", data={"name": "home", "sources": "10.0.0.0/24", "csrf_token": token(client, "/ip-lists/new")})
+    assert r.status_code in (302, 303)
+    r = client.post("/apps/new", data={**FORM, "path_rules": "/admin from=home deny", "csrf_token": token(client)})
+    assert r.status_code == 302
+    assert mgr.apps_using("home") == ["grafana"]

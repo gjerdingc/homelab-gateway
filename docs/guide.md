@@ -378,6 +378,44 @@ On the first deploy oauth2-proxy may restart once or twice: it waits for the man
 - Before this, oauth2-proxy was a separate stack (`oauth2-proxy/docker-compose.yml`). If you deployed it, remove that stack before redeploying this one (both use the container name `oauth2-proxy`), and delete any `auth` app you added by hand: the manager now owns that name.
 - The manager's own GUI is not behind Google sign-in; it keeps the LAN allow-list and its own optional [login](#login).
 
+## Path rules
+
+One app, different access per path: say a public page, the rest only for people who sign in, and an admin part only from home. Put the rules in **Path rules** on the app's form, one per line. They are tried from the top; a path no rule matches follows the app's own settings (sign-in or not, as above).
+
+```
+/admin /api/admin/  from=home  sign-in
+/admin /api/admin/  deny
+/games /assets/     open  read-only
+/                   from=home  optional  read-only
+/api/               sign-in=401  read-only
+/                   sign-in=/games  read-only
+```
+
+Read top to bottom, this says: the admin pages only from home, with Google; nobody else gets them. `/games` and `/assets/` are open to everyone, for reading. At home everything else is readable without signing in, and a signed-in user is still passed on. From anywhere else, the API answers 401 and pages send visitors to `/games` until they sign in.
+
+A rule is:
+
+- **Paths**: `/x` is `/x` and everything under it, `/x/` only what is under it, `/` everything. Letters, digits, `- _ . ~` and `/`.
+- **One access word**:
+  - `open`: no sign-in.
+  - `optional`: no sign-in needed, but someone who is signed in reaches the app as themselves (`X-Auth-Request-Email`). Use it where the app shows more to people it knows.
+  - `sign-in`: must be signed in; otherwise straight to Google.
+  - `sign-in=401`: must be signed in; otherwise 401. For APIs a page calls with `fetch`.
+  - `sign-in=/path`: must be signed in; otherwise a redirect to that path of the app, e.g. its public page. The path must be open to everyone in an earlier rule, or visitors would go round in circles; the form checks this.
+  - `deny`: 403 for everyone the rule matches.
+- **`from=<list>[,<list>]`** (optional): the rule only applies to clients in those [IP lists](#restricting-source-addresses); everyone else goes on to the next rule. Pair it with a `deny` rule for the same paths, as above, to keep the paths from everyone else. An IP list a rule uses can't be deleted; should one go missing anyway, the rule matches no one.
+- **`read-only`** (optional): anything but GET and HEAD on the rule's paths gets 403, before the app sees it.
+
+Good to know:
+
+- **LAN only** and **Allowed sources** still apply to every rule: they decide who reaches the app at all.
+- **People picked** under *Who may open it* apply to `sign-in` rules too.
+- Every route of an app with rules drops `X-Auth-Request-*` headers a client sent, so the app can trust `X-Auth-Request-Email` wherever it is set: only a signed-in user ever has it.
+- `optional`, `sign-in=401` and `sign-in=/path` are answered by the manager (`/_signin/<slug>`), which asks oauth2-proxy whether the visitor's cookie is valid. While the manager or oauth2-proxy is down, `optional` lets visitors in as no one and the other two answer 503: no one gets through as someone they're not.
+- With sign-in in its rules, the app gets `/oauth2/` on its own name, so it can link to `/oauth2/start?rd=<page>` to sign in and `/oauth2/sign_out?rd=<page>` to sign out without knowing the domain. `rd` must be a full `https://` address under `SSO_DOMAIN`; in a page, build it from `location.origin`.
+- `from=` uses the client's own address, as Traefik sees it. Port forwards that rewrite the source (source NAT, hairpin NAT) make every client look like the router; reach the gateway from the LAN directly, for instance with split DNS.
+- **Start path** only works for `/` when no rule covers `/`.
+
 ## Renewal
 
 Every `RENEW_CHECK_HOURS` the manager renews certs with fewer than `RENEW_BEFORE_DAYS` days left. A cert already limited by the intermediate's own expiry is not renewed repeatedly. Results are on **Status**; failures show as a red banner on every page.

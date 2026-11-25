@@ -417,3 +417,16 @@ def test_traffic_page_can_be_off(env):
     c = flask_app.test_client()
     assert flask_app.extensions["tm"]["traffic"] is None
     assert "The Traffic page is off" in c.get("/traffic").get_data(as_text=True)
+
+
+def test_icon_is_served_at_the_root_without_login(client):
+    client.tm["manager"].login.save(["admin:$2y$10$abcdefghijklmnopqrstuuJ3nGAvSVQ1u2oG6Lb2X7X9wQq5m1y6W"])
+    assert client.get("/").status_code == 401
+    r = client.get("/favicon.svg")
+    assert r.status_code == 200 and r.mimetype == "image/svg+xml" and b"<svg" in r.data
+    r = client.get("/apple-touch-icon.png")
+    assert r.status_code == 200 and r.mimetype == "image/png" and r.data[:8] == b"\x89PNG\r\n\x1a\n"
+    client.tm["manager"].login.save([])
+    page = client.get("/").get_data(as_text=True)
+    assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in page
+    assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' in page

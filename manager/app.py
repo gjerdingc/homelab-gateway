@@ -104,7 +104,7 @@ def create_app(env=None, start_background=True):
     # ---- login ---------------------------------------------------------------
 
     # Checked here as well as by Traefik, because the break-glass port does not go through Traefik.
-    open_paths = {"/healthz", tc.ROOT_CA_DOWNLOAD}
+    open_paths = {"/healthz", tc.ROOT_CA_DOWNLOAD, *tc.ICON_PATHS}
 
     @app.before_request
     def require_login():
@@ -235,6 +235,15 @@ def create_app(env=None, start_background=True):
         except requests.RequestException as exc:
             api_error = describe(exc)
         return render_template("apps.html", apps=apps, routers=routers, api_error=api_error)
+
+    # The app icon at the site root, where the family homepage looks for it (no login needed).
+    @app.get("/favicon.svg")
+    def favicon():
+        return app.send_static_file("favicon.svg")
+
+    @app.get("/apple-touch-icon.png")
+    def apple_touch_icon():
+        return app.send_static_file("apple-touch-icon.png")
 
     # ---- who may open an app (Traefik's forwardAuth, not people) ----------------
 

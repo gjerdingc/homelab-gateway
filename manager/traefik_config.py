@@ -333,6 +333,8 @@ def _render_rules(app, rules, guards, main, ip_lists, access_url, http):
 
 
 ROOT_CA_DOWNLOAD = "/status/root_ca.crt"
+# The manager's icon, fetched by browsers and the family homepage without the login.
+ICON_PATHS = ("/favicon.svg", "/apple-touch-icon.png")
 
 
 def render_core(config, manager_cert, sources=None, auth_users=None):
@@ -389,10 +391,11 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
         "tls": {},
     }
     if auth_users:
-        # The root certificate is public, so anyone allowed to reach the manager can fetch it to set
-        # up a device, without the login.
+        # The root certificate and the icon are public, so anyone allowed to reach the manager can
+        # fetch them without the login (to set up a device; for the tab and the family homepage).
+        public = " || ".join(f"Path(`{p}`)" for p in (ROOT_CA_DOWNLOAD, *ICON_PATHS))
         routers["traefik-manager-root-ca"] = {
-            "rule": f"{host} && Path(`{ROOT_CA_DOWNLOAD}`)",
+            "rule": f"{host} && ({public})",
             "entryPoints": ["websecure"],
             "service": "traefik-manager",
             "priority": 20,

@@ -92,6 +92,7 @@ def test_core_dashboard_disabled_and_basic_auth():
     assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["realm"] == "Traefik Manager"
     public = data["http"]["routers"]["traefik-manager-root-ca"]
     assert public["middlewares"] == ["lan-only@file", "strip-identity@file"] and "/status/root_ca.crt" in public["rule"]
+    assert "Path(`/favicon.svg`)" in public["rule"] and "Path(`/apple-touch-icon.png`)" in public["rule"]
 
 
 def test_core_login_from_settings_overrides_nothing_when_unset():

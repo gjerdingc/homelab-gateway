@@ -199,6 +199,20 @@ def test_core_defines_sso_only_when_enabled():
     assert stripped["X-Auth-Request-Email"] == "" and stripped["X-Auth-Request-User"] == ""
 
 
+def test_sign_in_page_name_can_be_set_per_stack():
+    assert core_config(**SSO_ENV).sso_auth_host == "auth.oplassen.net"
+    config = core_config(**SSO_ENV, SSO_AUTH_HOST="Auth-Home.oplassen.net.")
+    assert config.ok, config.errors
+    assert config.sso_auth_host == "auth-home.oplassen.net"
+    router = yaml.safe_load(tc.render_core(config, None))["http"]["routers"]["sso-signin"]
+    assert router["rule"] == "Host(`auth-home.oplassen.net`)"
+    # The callback must set the cookie for SSO_DOMAIN, so the name must be under it.
+    assert any("must be under SSO_DOMAIN" in e for e in core_config(**SSO_ENV, SSO_AUTH_HOST="auth.gjecorp.net").errors)
+    assert any("not a valid" in e for e in core_config(**SSO_ENV, SSO_AUTH_HOST="bad_name.oplassen.net").errors)
+    # Ignored while sign-in is off.
+    assert core_config(SSO_AUTH_HOST="whatever").ok
+
+
 def test_sso_config_is_validated():
     assert any("SSO_DOMAIN is required" in e for e in core_config(SSO_ENABLED="true").errors)
     assert any("outside ALLOWED_DOMAINS" in e

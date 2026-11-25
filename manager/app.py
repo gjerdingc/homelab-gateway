@@ -99,6 +99,7 @@ def create_app(env=None, start_background=True):
     app.jinja_env.filters["days_left"] = days_left
     app.jinja_env.filters["expiry_class"] = expiry_class
     app.jinja_env.globals["format_rule"] = tc.format_rule
+    app.jinja_env.globals["describe_rule"] = tc.describe_rule
 
     # ---- login ---------------------------------------------------------------
 

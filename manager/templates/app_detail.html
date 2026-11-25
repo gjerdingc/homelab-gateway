@@ -29,7 +29,7 @@
       {% if a.allowed_sources %}<span class="mono">{{ a.allowed_sources | join(', ') }}</span>{% endif %}
       {% if not a.ip_lists and not a.allowed_sources %}Any{% endif %}</dd>
     {% if not a.reserved %}<dt>Sign-in</dt><dd>{% if a.require_sign_in %}<span class="badge badge-ok">Google</span> {% if a.sign_in_restricted %}only {{ a.sign_in_users | join(', ') if a.sign_in_users else 'nobody' }}{% else %}everyone who can sign in{% endif %}{% if not sso_enabled %} <span class="badge badge-err" title="SSO_ENABLED is off, so Traefik rejects this route until it is turned back on or sign-in is removed from the app">not set up</span>{% endif %}{% else %}None{% endif %}</dd>{% endif %}
-    {% if a.path_rules %}<dt>Path rules</dt><dd><ol class="mono path-rules">{% for r in a.path_rules %}<li>{{ format_rule(r) }}</li>{% endfor %}</ol></dd>{% endif %}
+    {% if a.path_rules %}<dt>Path rules</dt><dd><ol class="path-rules">{% for r in a.path_rules %}<li><span class="mono">{{ format_rule(r) }}</span><br><span class="help">{{ describe_rule(r) }}</span></li>{% endfor %}</ol></dd>{% endif %}
     <dt>Options</dt><dd>{{ 'LAN only' if a.lan_only else 'Open to any client' }}, {{ 'security headers' if a.security_headers else 'no security headers' }}{% if a.backend_tls_skip_verify %}, backend TLS not verified{% endif %}</dd>
     {% if a.notes %}<dt>Notes</dt><dd>{{ a.notes }}</dd>{% endif %}
   </dl>

@@ -322,7 +322,10 @@ def test_path_rules_form_and_signin_check(client, monkeypatch):
     assert r.status_code == 302
     assert [x["access"] for x in mgr.get("grafana")["path_rules"]] == ["open", "sign-in", "sign-in"]
     assert "/ sign-in=/games" in client.get("/apps/grafana/edit").get_data(as_text=True)
-    assert "/games open read-only" in client.get("/apps/grafana").get_data(as_text=True)
+    page = client.get("/apps/grafana").get_data(as_text=True)
+    assert "/games open read-only" in page
+    assert "Everyone opening /games and everything under it get in without signing in." in page
+    assert "path-rules.js" in client.get("/apps/grafana/edit").get_data(as_text=True)
     r = client.post("/apps/grafana/edit", data={**FORM, "path_rules": "/x nonsense", "csrf_token": token(client)})
     assert r.status_code == 400 and "is not understood" in r.get_data(as_text=True)
 

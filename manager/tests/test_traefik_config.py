@@ -344,3 +344,15 @@ def test_path_matching():
     assert tc.path_matches(["/games"], "/games") and tc.path_matches(["/games"], "/games/x")
     assert not tc.path_matches(["/games"], "/gamesx") and not tc.path_matches(["/a/"], "/a")
     assert tc.path_matches(["/"], "/anything")
+
+
+def test_describe_rule():
+    rule = {"paths": ["/admin", "/api/admin/"], "from": ["home-clients"], "access": "sign-in", "unauth": "google",
+            "read_only": False}
+    assert tc.describe_rule(rule) == ("Clients in home-clients opening /admin and everything under it or anything "
+                                      "under /api/admin/ must sign in with Google first. "
+                                      "Other clients go on to the next rule.")
+    assert tc.describe_rule({"paths": ["/"], "from": [], "access": "sign-in", "unauth": "/games",
+                             "read_only": True}) == ("Everyone opening any page must be signed in; others are sent "
+                                                     "to /games. Read-only: only GET and HEAD.")
+    assert tc.describe_rule({"paths": ["/x"], "from": [], "access": "deny", "read_only": True}).endswith("(403).")

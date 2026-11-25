@@ -113,6 +113,34 @@ def format_rule(rule):
     return " ".join(words)
 
 
+def describe_rule(rule):
+    """One rule in plain words, for the app page (the form's rule builder says the same in path-rules.js)."""
+    def where(p):
+        if p == "/":
+            return "any page"
+        return f"anything under {p}" if p.endswith("/") else f"{p} and everything under it"
+
+    def join_or(items):
+        return items[0] if len(items) < 2 else ", ".join(items[:-1]) + " or " + items[-1]
+
+    lists = rule.get("from") or []
+    who = "Clients in " + join_or(lists) if lists else "Everyone"
+    unauth = rule.get("unauth", "google")
+    what = {
+        "open": "get in without signing in",
+        "optional": "get in without signing in; if they are signed in, the app is told who they are",
+        "deny": "are blocked (403)",
+    }.get(rule["access"]) or ("must sign in with Google first" if unauth == "google" else
+                              "must already be signed in; others get a 401 error" if unauth == "401" else
+                              f"must be signed in; others are sent to {unauth}")
+    text = f"{who} opening {join_or([where(p) for p in rule['paths']])} {what}."
+    if rule.get("read_only") and rule["access"] != "deny":
+        text += " Read-only: only GET and HEAD."
+    if lists:
+        text += " Other clients go on to the next rule."
+    return text
+
+
 def uses_sign_in(app):
     """True when any route of the app asks oauth2-proxy: the whole app, or one of its path rules."""
     return requires_sign_in(app) or rules_use_sign_in(app)

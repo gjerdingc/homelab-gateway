@@ -14,6 +14,7 @@ from flask import (Flask, Response, abort, flash, redirect, render_template, req
 
 import auth
 import checks
+import icon
 import pki
 import store as st
 import traefik_config as tc
@@ -176,7 +177,8 @@ def create_app(env=None, start_background=True):
         return {"csrf_token": csrf_token, "banners": banners, "manager_fqdn": config.manager_fqdn,
                 "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled,
                 "wildcard_enabled": config.wildcard_enabled, "wildcard_domain": config.wildcard_domain,
-                "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain}
+                "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain,
+                "icon_colour": manager.icon_colour()}
 
     # ---- helpers -------------------------------------------------------------
 
@@ -253,13 +255,28 @@ def create_app(env=None, start_background=True):
         return render_template("apps.html", apps=apps, routers=routers, api_error=api_error)
 
     # The app icon at the site root, where the family homepage looks for it (no login needed).
+    # Drawn in the colour picked under Settings; ?c=<colour> draws another one (the Settings
+    # previews) and, in the page links, makes browsers fetch it again after a change.
     @app.get("/favicon.svg")
     def favicon():
-        return app.send_static_file("favicon.svg")
+        colour = request.args.get("c") if request.args.get("c") in icon.COLOURS else manager.icon_colour()
+        return Response(icon.svg(colour), mimetype="image/svg+xml", headers={"Cache-Control": "no-cache"})
 
     @app.get("/apple-touch-icon.png")
     def apple_touch_icon():
-        return app.send_static_file("apple-touch-icon.png")
+        r = app.send_static_file(icon.touch_file(manager.icon_colour()))
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+    @app.post("/settings/icon")
+    def settings_icon():
+        try:
+            manager.set_icon_colour(request.form.get("icon_colour", ""))
+        except ApplyError as exc:
+            flash(str(exc), "error")
+        else:
+            flash("Icon colour saved. Browsers may take a reload or two to show it in the tab.", "success")
+        return redirect(url_for("settings") + "#icon")
 
     # ---- who may open an app (Traefik's forwardAuth, not people) ----------------
 
@@ -528,6 +545,7 @@ def create_app(env=None, start_background=True):
         return render_template("settings.html", login=login, errors=errors or {},
                                username=(login.usernames() or [""])[0] if username is None else username,
                                emails="\n".join(manager.sso_allowed_emails()) if emails is None else emails,
+                               icon_options=icon.options(),
                                ), status
 
     @app.get("/settings")

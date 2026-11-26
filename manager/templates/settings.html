@@ -52,6 +52,21 @@
   {% endif %}
   {% endif %}
 </section>
+<section class="card" id="icon">
+  <h2>Icon colour</h2>
+  <form method="post" action="{{ url_for('settings_icon') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <fieldset class="field icon-choice">
+      <legend class="sr-only">Icon colour</legend>
+      {% for o in icon_options %}
+      <label class="icon-option"><input type="radio" name="icon_colour" value="{{ o.value }}" {% if o.value == icon_colour %}checked{% endif %}>
+        <img src="/favicon.svg?c={{ o.value }}" alt="" width="40" height="40"><span>{{ o.label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <p class="help">The icon in the browser tab, on a phone's home screen and on the family homepage. Give each deployment its own colour, e.g. one for the DMZ and one for the internal network, to tell their tabs apart.</p>
+    <div class="actions"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+</section>
 <section class="card" id="sign-in">
   <h2>Google sign-in: who may sign in</h2>
   {% if sso_enabled %}

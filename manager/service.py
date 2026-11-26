@@ -14,6 +14,7 @@ import time
 
 import yaml
 
+import icon
 import pki
 import store as st
 import traefik_config as tc
@@ -644,6 +645,23 @@ class Manager:
         except Exception as exc:
             self.startup_error = str(exc)
             self.actions.write(f"startup failed: {exc}", "ERROR")
+
+    # ---- the manager's own icon colour ---------------------------------------------------
+
+    def icon_colour(self):
+        try:
+            return icon.valid((self.store.load().get("settings") or {}).get("icon_colour"))
+        except (OSError, yaml.YAMLError):
+            return icon.DEFAULT
+
+    def set_icon_colour(self, colour):
+        if colour not in icon.COLOURS:
+            raise ApplyError("Pick one of the colours shown", {"icon_colour": "Pick one of the colours shown"})
+        with self.lock:
+            data = self.store.load()
+            data.setdefault("settings", {})["icon_colour"] = colour
+            self.store.save(data)
+        self.actions.write(f"icon colour set to {colour}")
 
     # ---- Google sign-in allow-list ------------------------------------------------
     # oauth2-proxy's emails.txt is the list itself: the Settings page reads and writes it, and

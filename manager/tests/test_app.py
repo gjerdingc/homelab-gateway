@@ -428,5 +428,20 @@ def test_icon_is_served_at_the_root_without_login(client):
     assert r.status_code == 200 and r.mimetype == "image/png" and r.data[:8] == b"\x89PNG\r\n\x1a\n"
     client.tm["manager"].login.save([])
     page = client.get("/").get_data(as_text=True)
-    assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in page
-    assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' in page
+    assert '<link rel="icon" href="/favicon.svg?c=purple" type="image/svg+xml">' in page
+    assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png?c=purple">' in page
+
+
+def test_icon_colour_setting(client):
+    mgr = client.tm["manager"]
+    mgr.startup()
+    purple = client.get("/favicon.svg").data
+    assert b"#7a1aa0" in purple and b"#f07a12" in client.get("/favicon.svg?c=orange").data
+    r = client.post("/settings/icon", data={"icon_colour": "orange", "csrf_token": token(client, "/settings")})
+    assert r.status_code == 302 and mgr.icon_colour() == "orange"
+    assert b"#f07a12" in client.get("/favicon.svg").data
+    assert client.get("/apple-touch-icon.png").data != client.get("/static/apple-touch-icon-purple.png").data
+    page = client.get("/settings").get_data(as_text=True)
+    assert 'href="/favicon.svg?c=orange"' in page and 'value="orange" checked' in page
+    client.post("/settings/icon", data={"icon_colour": "<b>", "csrf_token": token(client, "/settings")})
+    assert mgr.icon_colour() == "orange"

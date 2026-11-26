@@ -19,6 +19,7 @@ tm_panos_deploy() {
     _ACME_CURL=""  # built again with the firewall's CA on the next request
   elif [ "${PANOS_TLS_VERIFY:-true}" = "false" ]; then
     HTTPS_INSECURE=1
+    _ACME_CURL=""  # likewise: after a renewal it was already built, checking certificates
   fi
   # shellcheck disable=SC1091
   . "$LE_WORKING_DIR/deploy/panos.sh"

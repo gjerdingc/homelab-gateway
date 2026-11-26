@@ -171,7 +171,7 @@ With plain Docker: `docker compose -f docker-compose.yml -f docker-compose.build
 | `/opt/traefik/logs` | Traefik's JSON access log, read by the manager for the Usage page. |
 | `/opt/traefik/acme` | `acme.json`: Traefik's Let's Encrypt account key and certificates. Traefik only; contains private keys. Back this up. |
 | `/opt/traefik/gateway-acme` | acme.sh's account, settings and certificate (profile `wildcard`). Holds the Cloudflare token too. Back this up like a secret. |
-| `/opt/traefik/gateway-acme-remote` | The same for another stack's certificate (profile `wildcard-remote`), plus the SSH key that pushes it and the firewall API key. Back this up like a secret. |
+| `/opt/traefik/gateway-acme-remote` | The same for another stack's certificate (profile `wildcard-remote`), plus the SSH key that pushes it and the firewall password. Back this up like a secret. |
 | `/opt/traefik/wildcard` | The wildcard's `fullchain.pem` and `key.pem` as Traefik and the manager read them (written by `gateway-acme`, or pushed from a trusted stack). |
 | `/opt/traefik/wildcard-remote` | The other stack's certificate as last pushed. Not read by this stack. |
 | `/opt/traefik/pki/intermediate` | Intermediate cert and key, mounted into the manager only. Back this up. |
@@ -430,22 +430,17 @@ With `PANOS_HOST` set on `gateway-acme-remote`, the firewall gets the certificat
 
 On the firewall (PAN-OS 12.1 names):
 
-1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Turn off Web UI, REST API and Command Line. Under XML API, allow only **Import** and **Commit**. Do not add **Operational Requests** to make a failing deploy work: it lets the account run operational commands, far more than the deploy needs. (Whether the hook's key check, a version request, works without it is still to be confirmed on a real firewall.)
+1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Turn off Web UI, REST API and Command Line. Under XML API, allow only **Import** and **Commit**. Do not add **Operational Requests**: it lets the account run operational commands, far more than the deploy needs. Without it the hook's check of a saved API key is refused (`Type [op] not authorized for user role`), so the container is given the password instead (step 5) and makes a fresh key on each deploy.
 2. **Device > Administrators**: add an admin, e.g. `gateway-acme`, with that role.
-3. Make its API key once, from a machine that reaches the management interface. Keep the password somewhere else:
-
-```bash
-curl -k -X POST "https://FIREWALL/api/?type=keygen" --data-urlencode "user=gateway-acme" --data-urlencode "password=THE-PASSWORD"
-```
-
+3. Give that admin a long password of letters and digits only: the hook sends it to the firewall as is, so `&`, `+`, `%` or `#` can break the key request.
 4. Limit the management interface (its **Interface Mgmt** profile) to HTTPS from the trusted host, plus your own admin machines. The less trusted stack's host must not reach it.
 5. On the trusted stack, set:
    - `PANOS_HOST`: the management address;
    - `PANOS_USER`: `gateway-acme`;
-   - `PANOS_KEY`: the key from step 3;
+   - `PANOS_PASS`: the password from step 3. Keep it set: the hook needs it on every deploy, not only the first, as long as the role has no Operational Requests;
    - `PANOS_CERTNAME` (optional): the certificate's name on the firewall, default `gateway-wildcard`.
 
-   For the firewall's own web certificate, either mount its CA into the container and set `PANOS_CA_FILE`, or set `PANOS_TLS_VERIFY=false` while it still uses the self-signed one it came with.
+   For the firewall's own web certificate, either mount its CA into the container and set `PANOS_CA_FILE`, or set `PANOS_TLS_VERIFY=false` while it still uses the self-signed one it came with. Without either, the deploy fails with curl error 60.
 6. Redeploy. The log ends with `Success`, and **Device > Certificate Management > Certificates** lists `gateway-wildcard` with its key.
 7. **Objects > Decryption > Decryption Profile**: add a profile for inbound inspection. Block expired certificates and unsupported versions, and set the minimum to TLS 1.2.
 8. **Policies > Decryption**: add a rule and commit:
@@ -461,7 +456,7 @@ Good to know:
 - The trusted host now holds the keys to several things:
   - the zone's DNS token;
   - the SSH key that can install the DMZ certificate;
-  - the firewall API key, which can import certificates and commit that account's own changes.
+  - the firewall password, which can import certificates and commit that account's own changes.
 
   All three are in `/opt/traefik/gateway-acme-remote`. Back it up like a secret.
 - The DMZ's certificate depends on the trusted host. If that host is down for a month, the DMZ certificate expires; the DMZ manager's **Status** page shows the expiry.

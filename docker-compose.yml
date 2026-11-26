@@ -220,7 +220,8 @@ services:
       PUSH_SSH_PORT: ${REMOTE_SSH_PORT:-22}
       PUSH_REMOTE_DIR: ${REMOTE_WILDCARD_DIR:-/opt/traefik/wildcard}
       # Firewall (leave PANOS_HOST empty to skip). An admin whose role allows only XML API import and
-      # commit. PANOS_KEY is that admin's API key; or PANOS_PASS and acme.sh makes the key itself.
+      # commit. PANOS_PASS is its password, and acme.sh makes a key on each deploy (a saved PANOS_KEY
+      # is refused without Operational Requests, which the role should not have).
       PANOS_HOST: ${PANOS_HOST:-}
       PANOS_USER: ${PANOS_USER:-}
       PANOS_KEY: ${PANOS_KEY:-}

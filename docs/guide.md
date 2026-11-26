@@ -380,7 +380,7 @@ With `PANOS_HOST` set, `gateway-acme` imports the certificate and key on the fir
 
 On the firewall (PAN-OS 12.1 names):
 
-1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Web UI, REST API and Command Line: all off. XML API: only **Import** and **Commit**. If the deploy then fails its key check, also allow **Operational Requests**.
+1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Web UI, REST API and Command Line: all off. XML API: only **Import** and **Commit**. Do not add **Operational Requests** to make a failing deploy work: it lets the account run operational commands, far more than the deploy needs. (Whether the hook's key check, a version request, works without it is still to be confirmed on a real firewall.)
 2. **Device > Administrators**: add an admin, e.g. `gateway-acme`, with that role.
 3. Make its API key (once, from a machine that reaches the management interface), and keep the password elsewhere:
 

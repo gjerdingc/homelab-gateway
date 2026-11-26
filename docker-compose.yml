@@ -170,11 +170,11 @@ services:
     networks: [proxy]
     depends_on: [traefik]
 
-  # One Let's Encrypt wildcard certificate for the stack (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN), from acme.sh
-  # with a DNS challenge at Cloudflare. Only started with COMPOSE_PROFILES including wildcard. With PANOS_HOST
-  # set it also puts every new certificate on the Palo Alto firewall, for SSL Inbound Inspection.
-  # See "Wildcard certificate" in docs/guide.md. No ports, and not on the proxy network: it only talks out
-  # (Let's Encrypt, Cloudflare, the firewall).
+  # One Let's Encrypt wildcard certificate for this stack (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN), from acme.sh
+  # with a DNS challenge at Cloudflare. Only started with COMPOSE_PROFILES including wildcard.
+  # A less trusted stack (a DMZ) runs neither container: a trusted stack gets its certificate with
+  # gateway-acme-remote below and pushes it there. See "Wildcard certificate" in docs/guide.md.
+  # No ports, and not on the proxy network: it only talks out (Let's Encrypt, Cloudflare).
   gateway-acme:
     image: ${TM_ACME_IMAGE:-ghcr.io/gjerdingc/gateway-acme}:${TM_VERSION:-latest}
     pull_policy: ${TM_PULL_POLICY:-always}
@@ -190,6 +190,35 @@ services:
       # The same Cloudflare token as Traefik's (Zone:DNS:Edit and Zone:Zone:Read on the zone)
       CF_Token: ${CF_DNS_API_TOKEN:-}
       CF_Zone_ID: ${CF_ZONE_ID:-}
+    volumes:
+      # acme.sh's account, settings and certificate. Holds the Cloudflare token too: back it up like a secret.
+      - ${TM_ROOT:-/opt/traefik}/gateway-acme:/acme.sh
+      # Where Traefik and the manager read the certificate (fullchain.pem, key.pem)
+      - ${TM_ROOT:-/opt/traefik}/wildcard:/out
+
+  # The wildcard certificate of ANOTHER, less trusted stack (a DMZ), kept here so that stack holds no DNS token
+  # and never reaches the firewall. Its own key, separate from this stack's. Pushes every new certificate over
+  # SSH to REMOTE_SSH_TARGET (where receive-wildcard.sh checks and installs it), and with PANOS_HOST set puts
+  # it on the Palo Alto firewall for SSL Inbound Inspection. Only started with COMPOSE_PROFILES including
+  # wildcard-remote. Not read by this stack's Traefik.
+  gateway-acme-remote:
+    image: ${TM_ACME_IMAGE:-ghcr.io/gjerdingc/gateway-acme}:${TM_VERSION:-latest}
+    pull_policy: ${TM_PULL_POLICY:-always}
+    container_name: gateway-acme-remote
+    profiles: [wildcard-remote]
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+      # The other stack's domain; by default the same as this stack's (a second certificate, its own key)
+      WILDCARD_DOMAIN: ${REMOTE_WILDCARD_DOMAIN:-${WILDCARD_DOMAIN:-}}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_CA_SERVER: ${ACME_CA_SERVER:-letsencrypt}
+      CF_Token: ${CF_DNS_API_TOKEN:-}
+      CF_Zone_ID: ${CF_ZONE_ID:-}
+      # user@host of the receiving account on the other stack's host, its SSH port and the folder there
+      PUSH_SSH_TARGET: ${REMOTE_SSH_TARGET:-}
+      PUSH_SSH_PORT: ${REMOTE_SSH_PORT:-22}
+      PUSH_REMOTE_DIR: ${REMOTE_WILDCARD_DIR:-/opt/traefik/wildcard}
       # Firewall (leave PANOS_HOST empty to skip). An admin whose role allows only XML API import and
       # commit. PANOS_KEY is that admin's API key; or PANOS_PASS and acme.sh makes the key itself.
       PANOS_HOST: ${PANOS_HOST:-}
@@ -203,11 +232,11 @@ services:
       PANOS_CA_FILE: ${PANOS_CA_FILE:-}
       PANOS_TLS_VERIFY: ${PANOS_TLS_VERIFY:-true}
     volumes:
-      # acme.sh's account, settings and certificates. Holds the Cloudflare token and the firewall's API
-      # key as well: back it up like a secret.
-      - ${TM_ROOT:-/opt/traefik}/gateway-acme:/acme.sh
-      # Where Traefik and the manager read the certificate (fullchain.pem, key.pem)
-      - ${TM_ROOT:-/opt/traefik}/wildcard:/out
+      # acme.sh's account, settings, certificate and SSH key, and the Cloudflare token and firewall API key.
+      # Back it up like a secret.
+      - ${TM_ROOT:-/opt/traefik}/gateway-acme-remote:/acme.sh
+      # The other stack's certificate as pushed (not read by this stack's Traefik)
+      - ${TM_ROOT:-/opt/traefik}/wildcard-remote:/out
 
   # Google sign-in for the apps you pick. Only started with COMPOSE_PROFILES=sso; needs
   # SSO_DOMAIN and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).

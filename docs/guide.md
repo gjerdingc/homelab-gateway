@@ -170,8 +170,10 @@ With plain Docker: `docker compose -f docker-compose.yml -f docker-compose.build
 | `/opt/traefik/manager` | `apps.yml` (source of truth), `archive/` (deleted apps), `manager.log`, `stats.json` (usage). Back this up. |
 | `/opt/traefik/logs` | Traefik's JSON access log, read by the manager for the Usage page. |
 | `/opt/traefik/acme` | `acme.json`: Traefik's Let's Encrypt account key and certificates. Traefik only; contains private keys. Back this up. |
-| `/opt/traefik/gateway-acme` | acme.sh's account, settings and certificate (wildcard profile). Holds the Cloudflare token and the firewall API key too. Back this up like a secret. |
-| `/opt/traefik/wildcard` | The wildcard's `fullchain.pem` and `key.pem` as Traefik and the manager read them (written by `gateway-acme`). |
+| `/opt/traefik/gateway-acme` | acme.sh's account, settings and certificate (profile `wildcard`). Holds the Cloudflare token too. Back this up like a secret. |
+| `/opt/traefik/gateway-acme-remote` | The same for another stack's certificate (profile `wildcard-remote`), plus the SSH key that pushes it and the firewall API key. Back this up like a secret. |
+| `/opt/traefik/wildcard` | The wildcard's `fullchain.pem` and `key.pem` as Traefik and the manager read them (written by `gateway-acme`, or pushed from a trusted stack). |
+| `/opt/traefik/wildcard-remote` | The other stack's certificate as last pushed. Not read by this stack. |
 | `/opt/traefik/pki/intermediate` | Intermediate cert and key, mounted into the manager only. Back this up. |
 | `/opt/traefik/pki/root` | Root **certificate** only, mounted into the manager and (read-only) Traefik. Keep no root key here. |
 
@@ -336,69 +338,134 @@ In the stack:
 
 ## Wildcard certificate
 
-One Let's Encrypt certificate for the stack: `WILDCARD_DOMAIN` and every name one level below it. The `gateway-acme` container ([acme.sh](https://github.com/acmesh-official/acme.sh) 3.1.7, profile `wildcard`) gets it with a DNS challenge at Cloudflare, writes `fullchain.pem` and `key.pem` to `/opt/traefik/wildcard`, and renews it about 30 days before expiry, checking twice a day. The manager looks at the folder every minute, checks that the key belongs to the certificate and that it covers the domain, and only then lists it for Traefik in `_core.yml`. Traefik serves it for every name it covers that has no certificate of its own.
+One Let's Encrypt certificate per stack: `WILDCARD_DOMAIN` and every name one level below it. It is kept by a small acme.sh container ([acme.sh](https://github.com/acmesh-official/acme.sh) 3.1.7), which gets it with a DNS challenge at Cloudflare and checks for renewal twice a day. Renewal happens about 30 days before expiry. The certificate ends up as `fullchain.pem` and `key.pem` in `/opt/traefik/wildcard` on the stack's host. The manager looks at that folder every minute. It checks that the key belongs to the certificate, that the certificate covers the domain and that it has not expired, and only then lists it for Traefik in `_core.yml`. Traefik serves it for every name it covers that has no certificate of its own.
 
 Why use it rather than Let's Encrypt per app:
 
-- **A firewall can decrypt with it.** SSL Inbound Inspection needs the server's certificate and key on the firewall. With one certificate under a fixed name, `gateway-acme` can put each renewal there itself (below).
+- **A firewall can decrypt with it.** SSL Inbound Inspection needs the server's certificate and key on the firewall. With one certificate under a fixed name, each renewal can be put there automatically (below).
 - **App names stay private.** Per-app certificates put every name in public Certificate Transparency logs; the wildcard only shows `*.example.com`.
 
-The cost: one key covers every name under the domain. Give each stack its own wildcard (each `gateway-acme` makes its own key), never copy one stack's files to another.
+The cost: one key covers every name under the domain. Each stack gets its own certificate with its own key; never copy one stack's files to another.
 
-### Set up once
+### Who gets the certificate
 
-1. The same Cloudflare token as for Let's Encrypt: **Zone / DNS / Edit** and **Zone / Zone / Read** on the zone, in `CF_DNS_API_TOKEN`. CAA records, if any, must allow `letsencrypt.org`.
-2. In the stack, add `wildcard` to `COMPOSE_PROFILES` (e.g. `sso,wildcard`) and set:
+Getting the certificate needs a DNS token that can change the whole zone, and putting it on the firewall needs access to the firewall's management interface. Neither belongs on a host that the internet reaches. So:
+
+- **A trusted stack** (on the LAN) runs `gateway-acme` (profile `wildcard`) for its own certificate.
+- **The same trusted stack** runs `gateway-acme-remote` (profile `wildcard-remote`) for a **less trusted stack**, such as one in a DMZ. It gets that stack's certificate (a second one, with its own key), pushes each new one over SSH, and puts it on the firewall.
+- **The less trusted stack** runs neither container, holds no DNS token and has no way to reach the firewall. Its host only accepts the push, through a forced command that checks the certificate before installing it.
+
+The connections go from the trusted side to the less trusted one, never back.
+
+### This stack's own certificate
+
+1. Get a Cloudflare token with **Zone / DNS / Edit** and **Zone / Zone / Read** on the zone, the same as for Let's Encrypt, and put it in `CF_DNS_API_TOKEN`. If the zone has CAA records, they must allow `letsencrypt.org`.
+2. Add `wildcard` to `COMPOSE_PROFILES` (e.g. `sso,wildcard`) and set:
 
 | Variable | Value | Notes |
 |---|---|---|
 | `WILDCARD_DOMAIN` | e.g. `example.com` | The certificate covers it and `*.example.com`. Must be under `ALLOWED_DOMAINS` |
 | `ACME_EMAIL` | e.g. `you@example.com` | Required here; the Let's Encrypt account contact |
-| `CF_DNS_API_TOKEN` | *(the token)* | Given to Traefik and `gateway-acme`, never the manager |
-| `ACME_CA_SERVER` | `letsencrypt_test` | Optional; Let's Encrypt's staging, for a first try (untrusted). Remove it for the real one, and delete `/opt/traefik/gateway-acme/example.com` so it is issued again |
+| `CF_DNS_API_TOKEN` | *(the token)* | Given to Traefik and the acme containers, never the manager |
+| `ACME_CA_SERVER` | `letsencrypt_test` | Optional; Let's Encrypt's staging, for a first try (untrusted). Remove it for the real one, and delete `/opt/traefik/gateway-acme/<domain>` so it is issued again |
 | `CF_ZONE_ID` | *(zone ID)* | Optional; then the token needs no Zone / Read |
 | `SSO_AUTH_CERT` | `wildcard` | Optional; serve the sign-in page with it too |
 
-3. Redeploy. `docker logs gateway-acme` shows the challenge; it takes a minute. **Status** then shows **Wildcard certificate: Loaded in Traefik**.
-4. Edit each app that should use it, choose **Shared wildcard** and save. Names more than one level below the domain (`a.b.example.com`) cannot use it; the form says so.
+3. Redeploy. `docker logs gateway-acme` shows the challenge, which takes about a minute. **Status** then shows **Wildcard certificate: Loaded in Traefik**.
+4. Edit each app that should use it, choose **Shared wildcard** and save. Names more than one level below the domain (`a.b.example.com`) cannot use it, and the form says so.
 
-Commands, run on the host:
+### A less trusted stack's certificate (DMZ)
+
+**On the DMZ host**, once (as root):
 
 ```bash
-docker exec gateway-acme gateway-acme status
+useradd --system --create-home --shell /bin/sh wildcard-push
 ```
 
 ```bash
-docker exec gateway-acme gateway-acme renew
+install -d -o wildcard-push -g wildcard-push -m 0755 /opt/traefik/wildcard
 ```
 
-`status` shows the certificate, the next renewal and the last deploy to the firewall; `renew` renews now, even if not due (mind Let's Encrypt's limit of 5 identical certificates a week).
+```bash
+curl -fsSL https://raw.githubusercontent.com/gjerdingc/homelab-gateway/main/acme/receive-wildcard.sh -o /usr/local/bin/receive-wildcard && chmod 0755 /usr/local/bin/receive-wildcard
+```
+
+Read the script before you trust it: it is short. It takes the certificate and key on standard input and refuses anything that is not a publicly trusted certificate for the domain and `*.` it, with its own key, not expired, and expiring no earlier than the one already installed.
+
+**On the firewall:** allow the trusted host to reach the DMZ host on port 22, and nothing new in the other direction.
+
+**On the trusted stack:** add `wildcard-remote` to `COMPOSE_PROFILES` and set:
+
+| Variable | Value | Notes |
+|---|---|---|
+| `REMOTE_SSH_TARGET` | e.g. `wildcard-push@192.0.2.10` | The receiving account on the DMZ host |
+| `REMOTE_WILDCARD_DOMAIN` | e.g. `example.com` | Optional; default `WILDCARD_DOMAIN`. Same names, but its own certificate and key |
+| `REMOTE_SSH_PORT`, `REMOTE_WILDCARD_DIR` | `22`, `/opt/traefik/wildcard` | Optional |
+
+Redeploy. `docker logs gateway-acme-remote` prints a line starting with `restrict,command=`. Put that whole line in `~wildcard-push/.ssh/authorized_keys` on the DMZ host (folder mode 0700, file 0600, owned by `wildcard-push`). The `restrict` keeps the key from doing anything else: no shell, no forwarding, only that command. The next push installs the certificate, and you can trigger it now:
+
+```bash
+docker exec gateway-acme-remote gateway-acme push
+```
+
+On the first push, the trusted stack learns the DMZ host's SSH key and checks it on every later one. Compare it with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the DMZ host, against `/opt/traefik/gateway-acme-remote/ssh/known_hosts` on the trusted one.
+
+**On the DMZ stack:** set `WILDCARD_DOMAIN` (so the manager offers **Shared wildcard** and reads the pushed files) but leave `wildcard` out of `COMPOSE_PROFILES`. Switch its apps to **Shared wildcard**. Once none uses **Let's Encrypt** any more, set `LETSENCRYPT_ENABLED=false` and remove `CF_DNS_API_TOKEN` from that stack, so the DMZ holds no DNS token at all.
+
+Commands, run on the trusted host (`gateway-acme` for this stack's own certificate):
+
+```bash
+docker exec gateway-acme-remote gateway-acme status
+```
+
+```bash
+docker exec gateway-acme-remote gateway-acme renew
+```
+
+`status` shows the certificate, the next renewal, the last deploy to the firewall and whether the current certificate has been pushed. `renew` renews now, even if not due. Mind Let's Encrypt's limit of 5 certificates a week for the same set of names; both stacks' certificates count towards it.
 
 ### Putting it on a Palo Alto firewall
 
-With `PANOS_HOST` set, `gateway-acme` imports the certificate and key on the firewall after it is issued and after every renewal, then commits. It uses acme.sh's own `panos` hook, which commits only the changes of its own admin account (a partial commit), so it never commits someone else's half-done work. If an import fails it stops without committing. A failed deploy is tried again at the next renewal check, every 12 hours.
+With `PANOS_HOST` set on `gateway-acme-remote`, the firewall gets the certificate and key after the first issue and after every renewal: the container imports them, then commits. It uses acme.sh's own `panos` hook. The hook commits only its own admin account's changes (a partial commit), so it never commits someone else's half-done work. If an import fails, it stops without committing. A failed deploy is tried again at the next renewal check, 12 hours later.
 
 On the firewall (PAN-OS 12.1 names):
 
-1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Web UI, REST API and Command Line: all off. XML API: only **Import** and **Commit**. Do not add **Operational Requests** to make a failing deploy work: it lets the account run operational commands, far more than the deploy needs. (Whether the hook's key check, a version request, works without it is still to be confirmed on a real firewall.)
+1. **Device > Admin Roles**: add a role, e.g. `cert-deploy`. Turn off Web UI, REST API and Command Line. Under XML API, allow only **Import** and **Commit**. Do not add **Operational Requests** to make a failing deploy work: it lets the account run operational commands, far more than the deploy needs. (Whether the hook's key check, a version request, works without it is still to be confirmed on a real firewall.)
 2. **Device > Administrators**: add an admin, e.g. `gateway-acme`, with that role.
-3. Make its API key (once, from a machine that reaches the management interface), and keep the password elsewhere:
+3. Make its API key once, from a machine that reaches the management interface. Keep the password somewhere else:
 
 ```bash
 curl -k -X POST "https://FIREWALL/api/?type=keygen" --data-urlencode "user=gateway-acme" --data-urlencode "password=THE-PASSWORD"
 ```
 
-4. Let the stack's host reach the management web interface on 443, and nothing else of it. With the stack in a DMZ, that is an **Interface Mgmt** profile with only HTTPS and the host's address under *Permitted IP Addresses*, on the interface it reaches, or the same limit on the MGT port.
-5. In the stack, set `PANOS_HOST` (the firewall's management address), `PANOS_USER=gateway-acme`, `PANOS_KEY` (the key from step 3) and, if you like, `PANOS_CERTNAME` (default `gateway-wildcard`). For the firewall's own certificate: mount its CA into the container and set `PANOS_CA_FILE`, or set `PANOS_TLS_VERIFY=false` while it uses the self-signed one it came with.
+4. Limit the management interface (its **Interface Mgmt** profile) to HTTPS from the trusted host, plus your own admin machines. The less trusted stack's host must not reach it.
+5. On the trusted stack, set:
+   - `PANOS_HOST`: the management address;
+   - `PANOS_USER`: `gateway-acme`;
+   - `PANOS_KEY`: the key from step 3;
+   - `PANOS_CERTNAME` (optional): the certificate's name on the firewall, default `gateway-wildcard`.
+
+   For the firewall's own web certificate, either mount its CA into the container and set `PANOS_CA_FILE`, or set `PANOS_TLS_VERIFY=false` while it still uses the self-signed one it came with.
 6. Redeploy. The log ends with `Success`, and **Device > Certificate Management > Certificates** lists `gateway-wildcard` with its key.
-7. **Objects > Decryption > Decryption Profile**: a profile for inbound inspection (block expired certificates and unsupported versions, minimum TLS 1.2).
-8. **Policies > Decryption**: a rule from the internet zone to the gateway's zone, destination the gateway's public address (decryption rules match the address before NAT and the zone after it), service `service-https`, action **Decrypt**, type **SSL Inbound Inspection**, certificate `gateway-wildcard`, and the profile. Commit.
+7. **Objects > Decryption > Decryption Profile**: add a profile for inbound inspection. Block expired certificates and unsupported versions, and set the minimum to TLS 1.2.
+8. **Policies > Decryption**: add a rule and commit:
+   - from the internet zone to the DMZ zone;
+   - destination: the gateway's public address (decryption rules match the address before NAT and the zone after it);
+   - service: `service-https`;
+   - action: **Decrypt**, type **SSL Inbound Inspection**;
+   - certificate: `gateway-wildcard`, with the profile from step 7.
 9. Check: **Monitor > Traffic** with the *Decrypted* column shows `yes` for sessions to the apps, and Threat Prevention now sees inside them.
 
 Good to know:
 
-- The firewall holds the key as well. Anyone who takes over that admin account can import certificates and commit its own changes, nothing more; keep the API key like a password. It is also stored in `/opt/traefik/gateway-acme`.
-- If the firewall's copy ever expires (a deploy failing for a month), visitors still get the current certificate from Traefik, but new sessions through the decryption rule fail. The deploy result is in `docker logs gateway-acme` and under `status`.
+- The trusted host now holds the keys to several things:
+  - the zone's DNS token;
+  - the SSH key that can install the DMZ certificate;
+  - the firewall API key, which can import certificates and commit that account's own changes.
+
+  All three are in `/opt/traefik/gateway-acme-remote`. Back it up like a secret.
+- The DMZ's certificate depends on the trusted host. If that host is down for a month, the DMZ certificate expires; the DMZ manager's **Status** page shows the expiry.
+- If the firewall's copy ever expires (a deploy failing for a month), visitors still get the current certificate from Traefik, but new sessions through the decryption rule fail. The deploy result is in the container's log and under `status`.
 - The decryption costs the firewall throughput; watch its data-plane load after turning it on.
 
 ## Google sign-in

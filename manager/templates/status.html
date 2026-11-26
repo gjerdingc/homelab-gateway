@@ -60,7 +60,7 @@
     <dt>Files</dt><dd class="mono wrap-any">{{ wildcard.cert_path }}, {{ wildcard.key_path }}</dd>
     <dt>Apps</dt><dd>{% for a in wildcard_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}{% if config.sso_auth_wildcard %}{% if wildcard_apps %}, {% endif %}the sign-in page{% endif %}</dd>
   </dl>
-  <p class="help">One Let's Encrypt certificate for the whole stack, from the gateway-acme container (DNS challenge at Cloudflare). It renews about 30 days before expiry and, with <span class="mono">PANOS_HOST</span> set, also puts the new certificate on the firewall. The manager looks for new files every minute. Problems show up in the gateway-acme log: <span class="mono">docker logs gateway-acme</span>.</p>
+  <p class="help">One Let's Encrypt certificate for the whole stack, from gateway-acme (DNS challenge at Cloudflare): in this stack, or pushed over SSH from a more trusted one, which also puts it on the firewall. It renews about 30 days before expiry. The manager looks for new files every minute. Problems show up in the gateway-acme log: <span class="mono">docker logs gateway-acme</span>, or <span class="mono">gateway-acme-remote</span> on the pushing stack.</p>
 </section>
 {% endif %}
 

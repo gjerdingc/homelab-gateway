@@ -169,7 +169,7 @@ def create_app(env=None, start_background=True):
                                          "Traefik keeps serving the last good one it loaded, if any."))
             elif wc["state"] == "missing" and manager.wildcard_apps():
                 banners.append(("warn", f"The wildcard certificate for {wc['domain']} is not issued yet, so apps "
-                                        "that use it get the manager's certificate. See the gateway-acme log."))
+                                        "that use it get the manager's certificate. See the log of gateway-acme (here, or on the stack that pushes it)."))
         if config.reset_login:
             banners.append(("warn", "RESET_LOGIN is set, so any login set on Settings is removed at every start. "
                                     "Remove the variable from the stack once you have set a new login."))
@@ -187,7 +187,7 @@ def create_app(env=None, start_background=True):
         elif (result.verified and tc.uses_wildcard(result.app) and result.app.get("enabled", True)
               and manager.wildcard_for_traefik() is None):
             flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router, but the wildcard certificate is not "
-                  "there yet, so it serves the manager's certificate until gateway-acme has written it.", "warn")
+                  "there yet, so it serves the manager's certificate until gateway-acme has written or pushed it.", "warn")
         elif result.verified:
             flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router.", "success")
         else:

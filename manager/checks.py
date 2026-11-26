@@ -104,7 +104,7 @@ def served_cert_check(config, app, timeout=3):
     if error and tc.uses_wildcard(app):
         return {**_r("warn", f"Traefik serves a certificate from {info['issuer']} that is not publicly trusted "
                              f"({error}). The wildcard certificate is not loaded yet: see the Status page "
-                             "and the gateway-acme log."), "info": info}
+                             "and the gateway-acme log (here, or on the stack that pushes it)."), "info": info}
     if error:
         return {**_r("warn", f"Traefik serves a certificate from {info['issuer']} that is not publicly trusted "
                              f"({error}). A new Let's Encrypt cert usually arrives within a few minutes of "
@@ -114,7 +114,7 @@ def served_cert_check(config, app, timeout=3):
     if tc.uses_wildcard(app):
         detail = f"Shared wildcard from {info['issuer']}, {left} days left"
         if status == "warn":
-            detail += ". gateway-acme should have renewed it by now; check its log"
+            detail += ". gateway-acme should have renewed it by now; check its log (here, or on the stack that pushes it)"
         return {**_r(status, detail), "info": info}
     detail = f"Let's Encrypt cert from {info['issuer']}, {left} days left"
     if status == "warn":

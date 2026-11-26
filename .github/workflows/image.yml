@@ -49,7 +49,7 @@ jobs:
         working-directory: manager
         run: python -m pytest -q
       - name: Check the gateway-acme scripts
-        run: shellcheck -s sh acme/run.sh acme/tm_panos.sh
+        run: shellcheck -s sh acme/run.sh acme/tm_panos.sh acme/receive-wildcard.sh
 
   image:
     needs: test

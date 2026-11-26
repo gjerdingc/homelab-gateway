@@ -1,5 +1,6 @@
 # acme.sh with the gateway's start script and PAN-OS hook: gets and renews one Let's Encrypt wildcard
-# certificate for the stack, and (DMZ) puts it on the firewall for inbound decryption. See docs/guide.md.
+# certificate, for this stack or (pushed over SSH) for a less trusted one, and puts it on the firewall for
+# inbound decryption. See docs/guide.md.
 FROM neilpang/acme.sh:3.1.7
 
 # The base image upgrades acme.sh from GitHub on every run unless told not to. Upgrades come with

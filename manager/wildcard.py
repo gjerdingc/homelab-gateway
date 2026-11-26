@@ -1,6 +1,7 @@
-"""The stack's shared wildcard certificate, from the gateway-acme container (decision: one per stack).
+"""The stack's shared wildcard certificate (one per stack, each with its own key).
 
-gateway-acme writes fullchain.pem and key.pem to WILDCARD_DIR and replaces them on renewal. The manager
+gateway-acme writes fullchain.pem and key.pem to WILDCARD_DIR and replaces them on renewal: in this stack,
+or, for a less trusted stack such as a DMZ, from a trusted stack over SSH (receive-wildcard.sh). The manager
 reads them here, checks that they belong together and cover the domain, and only then lists them in
 _core.yml. Traefik reads certificate files only when its configuration changes, so the fingerprint is
 part of _core.yml's revision: a renewed certificate rewrites the file, and Traefik loads it."""
@@ -33,7 +34,7 @@ def read(config):
     base = {"domain": domain, "cert_path": cert_path, "key_path": key_path}
     if not (os.path.isfile(cert_path) and os.path.isfile(key_path)):
         return {**base, "state": "missing",
-                "problem": "Not issued yet: the gateway-acme container has not written it (see its log)."}
+                "problem": "Not there yet: gateway-acme has not written or pushed it (see its log)."}
     try:
         with open(cert_path, "rb") as f:
             cert = x509.load_pem_x509_certificate(f.read())

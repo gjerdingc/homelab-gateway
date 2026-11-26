@@ -1,13 +1,18 @@
 #!/bin/sh
-# Gets the stack's wildcard certificate (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN) from Let's Encrypt with a
-# DNS challenge at Cloudflare, copies it where Traefik and the manager read it, and renews it twice a day
-# when due. With PANOS_HOST set, every new certificate also goes to the firewall (deploy hook tm_panos).
+# Gets a wildcard certificate (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN) from Let's Encrypt with a DNS
+# challenge at Cloudflare, copies it to WILDCARD_OUT, and checks for renewal twice a day.
+#   - For this stack: WILDCARD_OUT is where this stack's Traefik and manager read it.
+#   - For another, less trusted stack (a DMZ): with PUSH_SSH_TARGET set, every new certificate is also pushed
+#     over SSH to that host, where a forced command (receive-wildcard.sh) checks and installs it. That host
+#     then needs no DNS token and no access to the firewall.
+# With PANOS_HOST set, every new certificate also goes to the firewall (deploy hook tm_panos).
 #
-# Commands (docker exec gateway-acme gateway-acme <command>):
+# Commands (docker exec <container> gateway-acme <command>):
 #   (none)   start: issue if needed, then renew in a loop
-#   renew    renew now, even if not due, and deploy
+#   renew    renew now, even if not due, then push and deploy
 #   deploy   put the current certificate on the firewall again
-#   status   show the certificate and when it was last deployed
+#   push     push the current certificate to PUSH_SSH_TARGET again
+#   status   show the certificate, when it was last deployed and pushed
 set -eu
 
 log() { echo "gateway-acme: $*"; }
@@ -19,6 +24,10 @@ SERVER=${ACME_CA_SERVER:-letsencrypt}
 KEYLENGTH=${WILDCARD_KEYLENGTH:-2048}
 INTERVAL=${RENEW_INTERVAL_SECONDS:-43200}
 HOOK=tm_panos
+SSH_DIR=${LE_CONFIG_HOME:-/acme.sh}/ssh
+SSH_KEY=$SSH_DIR/id_ed25519
+PUSHED=${LE_CONFIG_HOME:-/acme.sh}/pushed.sha256
+PUSH_DIR=${PUSH_REMOTE_DIR:-/opt/traefik/wildcard}
 
 acme() { acme.sh --config-home "${LE_CONFIG_HOME:-/acme.sh}" "$@"; }
 conf() { echo "${LE_CONFIG_HOME:-/acme.sh}/$DOMAIN/$DOMAIN.conf"; }
@@ -47,6 +56,44 @@ install_cert() {
     --reloadcmd "chmod 0600 '$OUT/key.pem'; chmod 0644 '$OUT/fullchain.pem'"
 }
 
+ssh_key() {
+  [ -s "$SSH_KEY" ] && return 0
+  mkdir -p "$SSH_DIR" && chmod 0700 "$SSH_DIR"
+  ssh-keygen -q -t ed25519 -N "" -C "gateway-acme $DOMAIN" -f "$SSH_KEY"
+  log "made an SSH key for pushing to $PUSH_SSH_TARGET"
+}
+
+show_ssh_key() {
+  # Let's Encrypt's staging certificates are not publicly trusted; the receiver must be told to take them.
+  extra=""
+  case "$SERVER" in *test*|*staging*) extra=" --untrusted" ;; esac
+  log "put this line in the receiving account's ~/.ssh/authorized_keys on ${PUSH_SSH_TARGET#*@}:"
+  echo "restrict,command=\"/usr/local/bin/receive-wildcard $DOMAIN $PUSH_DIR$extra\" $(cat "$SSH_KEY.pub")"
+}
+
+# Pushes the chain and key to PUSH_SSH_TARGET, if they changed since the last push that worked.
+push() {
+  [ -n "${PUSH_SSH_TARGET:-}" ] || return 0
+  ssh_key
+  [ -s "$OUT/fullchain.pem" ] && [ -s "$OUT/key.pem" ] || { log "nothing to push yet"; return 1; }
+  sum=$(cat "$OUT/fullchain.pem" "$OUT/key.pem" | sha256sum | cut -d' ' -f1)
+  if [ "${1:-}" != "--force" ] && [ "$(cat "$PUSHED" 2>/dev/null)" = "$sum" ]; then
+    return 0
+  fi
+  log "pushing the certificate to $PUSH_SSH_TARGET"
+  # accept-new: the host's key is learned on the first push and checked on every later one.
+  if cat "$OUT/fullchain.pem" "$OUT/key.pem" | ssh -i "$SSH_KEY" -p "${PUSH_SSH_PORT:-22}" \
+      -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+      -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+      "$PUSH_SSH_TARGET" receive; then
+    echo "$sum" > "$PUSHED"
+  else
+    log "push to $PUSH_SSH_TARGET failed; trying again at the next check"
+    show_ssh_key
+    return 1
+  fi
+}
+
 deploy() {
   if [ -z "${PANOS_HOST:-}" ]; then
     log "PANOS_HOST is not set: the certificate is not put on a firewall"
@@ -71,23 +118,39 @@ start() {
   if [ -n "${PANOS_HOST:-}" ] && ! deployed_once; then
     deploy || log "deploy to the firewall failed; retried on the next renewal run, or run: gateway-acme deploy"
   fi
+  if [ -n "${PUSH_SSH_TARGET:-}" ]; then
+    ssh_key
+    [ -s "$PUSHED" ] || show_ssh_key
+    push || true
+  fi
   log "renewal check every $INTERVAL seconds"
   trap 'exit 0' TERM INT
   while :; do
     sleep "$INTERVAL" &
     wait $!
     acme --cron || log "renewal run failed; trying again in $INTERVAL seconds"
+    push || true
   done
 }
 
 case "${1:-}" in
   "") start ;;
-  renew) check; acme --renew -d "$DOMAIN" --force ;;
+  renew) check; acme --renew -d "$DOMAIN" --force; push ;;
   deploy) check; deploy ;;
+  push) check; [ -n "${PUSH_SSH_TARGET:-}" ] || die "PUSH_SSH_TARGET is not set"; push --force ;;
   status)
     check
     acme --info -d "$DOMAIN" | grep -E "^Le_(Domain|Alt|Keylength|API|NextRenewTimeStr|DeployHook|DeploySuccessTimeStr)=" || true
     [ -s "$OUT/fullchain.pem" ] && openssl x509 -in "$OUT/fullchain.pem" -noout -subject -enddate -ext subjectAltName
+    if [ -n "${PUSH_SSH_TARGET:-}" ]; then
+      ssh_key
+      if [ "$(cat "$PUSHED" 2>/dev/null)" = "$(cat "$OUT/fullchain.pem" "$OUT/key.pem" 2>/dev/null | sha256sum | cut -d' ' -f1)" ]; then
+        echo "Pushed to $PUSH_SSH_TARGET: yes, the current certificate"
+      else
+        echo "Pushed to $PUSH_SSH_TARGET: not the current certificate"
+      fi
+      show_ssh_key
+    fi
     ;;
   *) exec acme.sh "$@" ;;
 esac

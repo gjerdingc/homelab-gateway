@@ -22,6 +22,7 @@ from renewer import Renewer
 from service import MANAGER_SLUG, ApplyError, Manager
 from stats import Stats, StatsCollector
 from traffic import EVENT_KINDS, Traffic
+import wildcard
 from traefik_api import TraefikAPI, describe
 
 DOCS_COMPOSE_SNIPPET = """services:
@@ -80,6 +81,7 @@ def create_app(env=None, start_background=True):
         actions.write("RESET_LOGIN is set: removed the login set on the Settings page", "WARN")
     manager = Manager(config, ca, ca_error, store, actions, api, login=login)
     renewer = Renewer(manager)
+    wildcard_watcher = wildcard.Watcher(manager)
     traffic = None
     if config.traffic_retention_days:
         try:
@@ -160,11 +162,20 @@ def create_app(env=None, start_background=True):
         if config.sso_enabled and config.ok and not manager.sso_allowed_emails():
             banners.append(("warn", "Google sign-in is on, but nobody may sign in yet. "
                                     "Add Google accounts under Settings."))
+        if config.wildcard_enabled and config.ok:
+            wc = manager.wildcard()
+            if wc["state"] == "invalid":
+                banners.append(("error", f"Wildcard certificate for {wc['domain']}: {wc['problem']} "
+                                         "Traefik keeps serving the last good one it loaded, if any."))
+            elif wc["state"] == "missing" and manager.wildcard_apps():
+                banners.append(("warn", f"The wildcard certificate for {wc['domain']} is not issued yet, so apps "
+                                        "that use it get the manager's certificate. See the gateway-acme log."))
         if config.reset_login:
             banners.append(("warn", "RESET_LOGIN is set, so any login set on Settings is removed at every start. "
                                     "Remove the variable from the stack once you have set a new login."))
         return {"csrf_token": csrf_token, "banners": banners, "manager_fqdn": config.manager_fqdn,
                 "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled,
+                "wildcard_enabled": config.wildcard_enabled, "wildcard_domain": config.wildcard_domain,
                 "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain}
 
     # ---- helpers -------------------------------------------------------------
@@ -173,6 +184,10 @@ def create_app(env=None, start_background=True):
         if result.verified and tc.uses_letsencrypt(result.app) and result.app.get("enabled", True):
             flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router and requests the Let's Encrypt "
                   "certificate in the background; this usually takes a minute or two.", "success")
+        elif (result.verified and tc.uses_wildcard(result.app) and result.app.get("enabled", True)
+              and manager.wildcard_for_traefik() is None):
+            flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router, but the wildcard certificate is not "
+                  "there yet, so it serves the manager's certificate until gateway-acme has written it.", "warn")
         elif result.verified:
             flash(f"{result.app['fqdn']} {verb}. Traefik loaded the router.", "success")
         else:
@@ -185,7 +200,8 @@ def create_app(env=None, start_background=True):
         return a
 
     def form_defaults(kind="internal"):
-        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": "letsencrypt" if config.letsencrypt_enabled else "internal",
+        source = "wildcard" if config.wildcard_enabled else "letsencrypt" if config.letsencrypt_enabled else "internal"
+        return {"slug": "", "kind": kind, "fqdn": "", "extra_sans": [], "cert_source": source,
                 "backend_url": "https://" if kind == "external" else "http://", "backend_tls_skip_verify": False,
                 "start_path": "", "ip_lists": [], "allowed_sources": [], "pass_host_header": True, "lan_only": True, "require_sign_in": False, "sign_in_restricted": False, "sign_in_users": [], "path_rules": "", "security_headers": True, "notes": ""}
 
@@ -335,7 +351,7 @@ def create_app(env=None, start_background=True):
         preview = None
         if not errors:
             sample = dict(fields)
-            if not tc.uses_letsencrypt(fields):
+            if tc.uses_internal_ca(fields):
                 sample["cert"] = {"cert_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.crt",
                                   "key_path": f"/etc/traefik/certs/{fields['slug']}/<serial>.key"}
             preview = manager.render_for(sample)
@@ -586,7 +602,8 @@ def create_app(env=None, start_background=True):
             version, api_error = None, describe(exc)
         return render_template("status.html", login=login, ca=ca.info() if ca else None, ca_error=ca_error if config.ok else None,
                                version=version, api_error=api_error, renewer=renewer, config=config,
-                               le_apps=manager.letsencrypt_apps(), sso_apps=manager.sign_in_apps(), sso_emails=manager.sso_allowed_emails(),
+                               le_apps=manager.letsencrypt_apps(), wildcard=manager.wildcard(),
+                               wildcard_apps=manager.wildcard_apps(), wildcard_watcher=wildcard_watcher, sso_apps=manager.sign_in_apps(), sso_emails=manager.sso_allowed_emails(),
                                manual=manager.manual_files(), now=pki.iso(pki.utcnow()))
 
     @app.post("/status/regenerate")
@@ -687,5 +704,6 @@ def create_app(env=None, start_background=True):
         manager.startup()
         renewer.start()
         collector.start()
+        wildcard_watcher.start()
     return app
 

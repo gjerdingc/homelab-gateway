@@ -1,9 +1,10 @@
 # Tests the manager, then builds its image for amd64, arm64 and armv7 and pushes it to
-# ghcr.io/<owner>/traefik-manager.
+# ghcr.io/<owner>/traefik-manager, and the wildcard certificate container (acme/) to
+# ghcr.io/<owner>/gateway-acme with the same tags.
 #   push to main   -> :latest and :sha-<short>
 #   tag v1.2.3     -> :1.2.3 and :1.2
 #   pull request   -> test and build (amd64 only), nothing pushed
-# Only when the manager, the compose file, the installer or this workflow change; docs-only pushes don't build.
+# Only when the manager, acme/, the compose file, the installer or this workflow change; docs-only pushes don't build.
 name: image
 
 on:
@@ -12,12 +13,14 @@ on:
     tags: ["v*"]  # path filters do not apply to tags: a release tag always builds
     paths:
       - "manager/**"
+      - "acme/**"
       - "docker-compose.yml"  # holds the Traefik version the integration test uses
       - "install.sh"
       - ".github/workflows/image.yml"
   pull_request:
     paths:
       - "manager/**"
+      - "acme/**"
       - "docker-compose.yml"  # holds the Traefik version the integration test uses
       - "install.sh"
       - ".github/workflows/image.yml"
@@ -45,6 +48,8 @@ jobs:
       - name: Run tests
         working-directory: manager
         run: python -m pytest -q
+      - name: Check the gateway-acme scripts
+        run: shellcheck -s sh acme/run.sh acme/tm_panos.sh
 
   image:
     needs: test
@@ -86,6 +91,29 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Image name and tags (gateway-acme)
+        id: meta-acme
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/gateway-acme
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=gateway-acme
+            org.opencontainers.image.description=acme.sh that keeps the gateway's Let's Encrypt wildcard and puts it on the firewall
+      - name: Build and push (gateway-acme)
+        uses: docker/build-push-action@v7
+        with:
+          context: acme
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64,linux/arm/v7' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-acme.outputs.tags }}
+          labels: ${{ steps.meta-acme.outputs.labels }}
+          cache-from: type=gha,scope=acme
+          cache-to: type=gha,mode=max,scope=acme
 
   # Installs the stack with install.sh on a clean runner, using the image just pushed, and checks that
   # Traefik serves the manager with a certificate from the CA the manager created on first start.

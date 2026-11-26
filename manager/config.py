@@ -16,6 +16,18 @@ def in_domains(name, domains):
     return any(name == d or name.endswith("." + d) for d in domains)
 
 
+def wildcard_covers(domain, name):
+    """Whether a certificate for domain and *.domain is valid for name: the domain itself, or exactly
+    one label below it (a wildcard never covers deeper names)."""
+    name, domain = (name or "").lower().rstrip("."), (domain or "").lower().rstrip(".")
+    if not domain or not name:
+        return False
+    if name == domain:
+        return True
+    label, _, rest = name.partition(".")
+    return rest == domain and bool(label) and label != "*"
+
+
 def _split(value):
     return [p.strip() for p in re.split(r"[,\s]+", value or "") if p.strip()]
 
@@ -46,6 +58,13 @@ class Config:
         # docker-compose.yml). The manager only needs to know it is set up, so the form can offer it.
         self.letsencrypt_enabled = _bool(env.get("LETSENCRYPT_ENABLED"), False)
         self.letsencrypt_resolver = env.get("LETSENCRYPT_RESOLVER", "letsencrypt").strip() or "letsencrypt"
+        # One Let's Encrypt wildcard certificate for the stack (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN), got and
+        # renewed by the gateway-acme container (the "wildcard" profile), which writes it to wildcard_dir.
+        # The manager hands it to Traefik and offers it on the app form.
+        self.wildcard_domain = env.get("WILDCARD_DOMAIN", "").strip().lower().rstrip(".")
+        if self.wildcard_domain.startswith("*."):
+            self.wildcard_domain = self.wildcard_domain[2:]
+        self.wildcard_dir = env.get("TM_WILDCARD_DIR", "/etc/traefik/wildcard")
         # Google sign-in through oauth2-proxy (the "sso" profile in docker-compose.yml). Traefik asks it
         # about every request to an app that requires sign-in (ForwardAuth). Its cookie only covers
         # SSO_DOMAIN. On when the stack starts that profile (COMPOSE_PROFILES=sso), unless SSO_ENABLED
@@ -145,6 +164,10 @@ class Config:
             if ":" not in entry or entry.startswith(":"):
                 e.append("BASIC_AUTH_USERS entries must look like user:hash (htpasswd format)")
                 break
+        if self.wildcard_domain and not HOSTNAME_RE.match(self.wildcard_domain):
+            e.append(f"WILDCARD_DOMAIN {self.wildcard_domain!r} is not a valid domain")
+        elif self.wildcard_domain and self.allowed_domains and not in_domains(self.wildcard_domain, self.allowed_domains):
+            e.append(f"WILDCARD_DOMAIN {self.wildcard_domain!r} is outside ALLOWED_DOMAINS")
         if not re.match(r"^[A-Za-z0-9_-]{1,64}$", self.letsencrypt_resolver):
             e.append(f"LETSENCRYPT_RESOLVER {self.letsencrypt_resolver!r} must be letters, digits, - or _")
         if self.sso_enabled:
@@ -154,11 +177,17 @@ class Config:
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is not a valid domain")
             elif self.allowed_domains and not in_domains(self.sso_domain, self.allowed_domains):
                 e.append(f"SSO_DOMAIN {self.sso_domain!r} is outside ALLOWED_DOMAINS")
-            if self.sso_auth_cert not in ("internal", "letsencrypt"):
-                e.append(f"SSO_AUTH_CERT must be internal or letsencrypt, got {self.sso_auth_cert!r}")
+            if self.sso_auth_cert not in ("internal", "letsencrypt", "wildcard"):
+                e.append(f"SSO_AUTH_CERT must be internal, letsencrypt or wildcard, got {self.sso_auth_cert!r}")
             elif self.sso_auth_cert == "letsencrypt" and not self.letsencrypt_enabled:
                 e.append("SSO_AUTH_CERT=letsencrypt needs Let's Encrypt set up (LETSENCRYPT_ENABLED=true "
                          "and the DNS provider's credentials)")
+            elif self.sso_auth_cert == "wildcard" and not self.wildcard_enabled:
+                e.append("SSO_AUTH_CERT=wildcard needs WILDCARD_DOMAIN set (and the wildcard profile started)")
+            elif (self.sso_auth_cert == "wildcard" and self.sso_auth_host
+                  and not wildcard_covers(self.wildcard_domain, self.sso_auth_host)):
+                e.append(f"SSO_AUTH_CERT=wildcard: the sign-in host {self.sso_auth_host} is not covered by "
+                         f"the wildcard for {self.wildcard_domain} (one level below it, or the domain itself)")
             host = self.sso_auth_host_setting
             if host and not HOSTNAME_RE.match(host):
                 e.append(f"SSO_AUTH_HOST {host!r} is not a valid lowercase hostname")
@@ -181,6 +210,22 @@ class Config:
     @property
     def sso_auth_letsencrypt(self):
         return self.sso_enabled and self.sso_auth_cert == "letsencrypt"
+
+    @property
+    def sso_auth_wildcard(self):
+        return self.sso_enabled and self.sso_auth_cert == "wildcard"
+
+    @property
+    def wildcard_enabled(self):
+        return bool(self.wildcard_domain)
+
+    @property
+    def wildcard_cert_path(self):
+        return os.path.join(self.wildcard_dir, "fullchain.pem")
+
+    @property
+    def wildcard_key_path(self):
+        return os.path.join(self.wildcard_dir, "key.pem")
 
     @property
     def sso_emails_path(self):

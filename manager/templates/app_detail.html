@@ -22,7 +22,7 @@
     <dt>FQDN</dt><dd class="mono">{{ a.fqdn }}</dd>
     {% if a.extra_sans %}<dt>Extra names</dt><dd class="mono">{{ a.extra_sans | join(', ') }}</dd>{% endif %}
     <dt>Backend</dt><dd class="mono">{{ a.backend_url }}</dd>
-    <dt>Certificate</dt><dd>{{ "Let's Encrypt, obtained and renewed by Traefik" if a.cert_source == 'letsencrypt' else 'Internal CA' }}</dd>
+    <dt>Certificate</dt><dd>{{ "Let's Encrypt, obtained and renewed by Traefik" if a.cert_source == 'letsencrypt' else "The stack's shared Let's Encrypt wildcard, renewed by gateway-acme" if a.cert_source == 'wildcard' else 'Internal CA' }}</dd>
     {% if a.start_path %}<dt>Start path</dt><dd><span class="mono">/</span> redirects to <span class="mono">{{ a.start_path }}</span></dd>{% endif %}
     <dt>Allowed sources</dt><dd>
       {% for name in a.ip_lists or [] %}{% if name in lists %}<a class="mono" href="{{ url_for('ip_list_edit', name=name) }}">{{ name }}</a>{% else %}<span class="mono">{{ name }}</span> <span class="badge badge-err" title="This list no longer exists, so the app admits no one. Edit the app to remove it.">missing</span>{% endif %}{% if not loop.last or a.allowed_sources %}, {% endif %}{% endfor %}
@@ -71,7 +71,7 @@
 
 <section class="card">
   <h2>Certificate</h2>
-  {% if a.cert_source == 'letsencrypt' %}
+  {% if a.cert_source in ('letsencrypt', 'wildcard') %}
   {% set served = checks.certificate.info if checks.certificate else None %}
   {% if served %}
   <p class="help">The certificate Traefik serves for <span class="mono">{{ a.fqdn }}</span> right now.</p>
@@ -85,7 +85,11 @@
   </dl>
   {% elif not a.enabled %}<p class="muted">The app is disabled, so Traefik serves no certificate for it.</p>
   {% else %}<p class="muted">Could not read the certificate Traefik serves.</p>{% endif %}
+  {% if a.cert_source == 'wildcard' %}
+  <p class="help">One certificate for {{ wildcard_domain }} and every name one level below it, shared by the apps on this stack. The gateway-acme container gets it from Let's Encrypt and renews it about 30 days before it expires; see the Status page.</p>
+  {% else %}
   <p class="help">Traefik requests this certificate from Let's Encrypt with a DNS challenge at your DNS provider, keeps it in <span class="mono">acme.json</span> and renews it about 30 days before it expires. Changing the names gets a new one.</p>
+  {% endif %}
   {% else %}
   {% if cert %}
   <dl class="kv">

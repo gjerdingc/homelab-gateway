@@ -48,13 +48,29 @@
   <p class="help">Recommended for apps used from devices you don't manage: publicly trusted, so nothing has to be installed. Traefik obtains and renews these certificates itself (DNS challenge at your DNS provider), so they are not part of the renewal below. Problems show up in Traefik's log, not here; the Certificate check on each app shows what Traefik actually serves.</p>
 </section>
 
+{% if config.wildcard_enabled %}
+<section class="card">
+  <h2>Wildcard certificate</h2>
+  <dl class="kv">
+    <dt>Status</dt><dd>{% if wildcard.state == 'ok' %}{{ status_badge('ok') }}Loaded in Traefik{% elif wildcard.state == 'missing' %}<span class="badge badge-warn">waiting</span>{{ wildcard.problem }}{% else %}<span class="badge badge-err">problem</span>{{ wildcard.problem }}{% endif %}</dd>
+    <dt>Covers</dt><dd class="mono">{{ wildcard.domain }}, *.{{ wildcard.domain }}</dd>
+    {% if wildcard.not_after %}<dt>Expires</dt><dd><span class="badge badge-{{ wildcard.not_after | expiry_class }} mono">{{ wildcard.not_after[:10] }} · {{ wildcard.not_after | days_left }}d</span></dd>
+    <dt>Issuer</dt><dd>{{ wildcard.issuer }}</dd>
+    <dt>SHA-256</dt><dd class="mono wrap-any">{{ wildcard.sha256 }}</dd>{% endif %}
+    <dt>Files</dt><dd class="mono wrap-any">{{ wildcard.cert_path }}, {{ wildcard.key_path }}</dd>
+    <dt>Apps</dt><dd>{% for a in wildcard_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}{% if config.sso_auth_wildcard %}{% if wildcard_apps %}, {% endif %}the sign-in page{% endif %}</dd>
+  </dl>
+  <p class="help">One Let's Encrypt certificate for the whole stack, from the gateway-acme container (DNS challenge at Cloudflare). It renews about 30 days before expiry and, with <span class="mono">PANOS_HOST</span> set, also puts the new certificate on the firewall. The manager looks for new files every minute. Problems show up in the gateway-acme log: <span class="mono">docker logs gateway-acme</span>.</p>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Google sign-in</h2>
   <dl class="kv">
     <dt>Status</dt><dd>{% if config.sso_enabled %}{{ status_badge('ok') }}Available on the app form{% else %}<span class="badge badge-muted">off</span>Set <span class="mono">SSO_ENABLED=true</span> and <span class="mono">SSO_DOMAIN</span> to offer it{% endif %}</dd>
     {% if config.sso_enabled %}<dt>Domain</dt><dd class="mono">{{ config.sso_domain }}</dd>
     <dt>oauth2-proxy</dt><dd class="mono">{{ config.sso_auth_url }}</dd>
-    <dt>Sign-in page</dt><dd><span class="mono">https://{{ config.sso_auth_host }}</span> · {{ "Let's Encrypt certificate, obtained by Traefik" if config.sso_auth_letsencrypt else "internal CA certificate (the manager's)" }}</dd>
+    <dt>Sign-in page</dt><dd><span class="mono">https://{{ config.sso_auth_host }}</span> · {{ "Let's Encrypt certificate, obtained by Traefik" if config.sso_auth_letsencrypt else "the shared wildcard certificate" if config.sso_auth_wildcard else "internal CA certificate (the manager's)" }}</dd>
     <dt>Who may sign in</dt><dd>{% if sso_emails %}<span class="mono">{{ sso_emails | join(', ') }}</span>{% else %}Nobody yet{% endif %} · <a href="{{ url_for('settings') }}#sign-in">change</a></dd>{% endif %}
     <dt>Apps</dt><dd>{% for a in sso_apps %}<a class="mono" href="{{ url_for('app_detail', slug=a.slug) }}">{{ a.slug }}</a>{% if a.sign_in_restricted %} (only {{ (a.sign_in_users or []) | length }}){% endif %}{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}</dd>
   </dl>

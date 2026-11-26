@@ -15,9 +15,10 @@ RESERVED = "_manager"
 # The unspecified addresses never appear as a client's source, so this allow list admits no one.
 DENY_ALL = ["0.0.0.0/32", "::/128"]
 
-# Where an app's certificate comes from: signed here by the internal CA, or obtained and
-# renewed by Traefik itself from Let's Encrypt (its ACME cert resolver).
-CERT_SOURCES = ("internal", "letsencrypt")
+# Where an app's certificate comes from: signed here by the internal CA, obtained and renewed by
+# Traefik itself from Let's Encrypt (its ACME cert resolver), or the stack's shared Let's Encrypt
+# wildcard from the gateway-acme container (listed once in _core.yml; Traefik picks it by name).
+CERT_SOURCES = ("internal", "letsencrypt", "wildcard")
 DEFAULT_RESOLVER = "letsencrypt"
 
 
@@ -166,13 +167,25 @@ def uses_letsencrypt(app):
     return app.get("cert_source") == "letsencrypt"
 
 
+def uses_wildcard(app):
+    return app.get("cert_source") == "wildcard"
+
+
+def uses_internal_ca(app):
+    """Whether the manager issues and renews this app's certificate itself."""
+    return not (uses_letsencrypt(app) or uses_wildcard(app))
+
+
 def _yaml(data):
     return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=1000)
 
 
-def _dump(data, name):
-    """Serialize with the revision marker middleware added under http.middlewares."""
-    digest = hashlib.sha256(_yaml(data).encode()).hexdigest()[:10]
+def _dump(data, name, extra=""):
+    """Serialize with the revision marker middleware added under http.middlewares.
+
+    extra goes into the revision too: something Traefik reads from elsewhere, such as the fingerprint of a
+    certificate file, so a change to it changes the file and Traefik loads it again."""
+    digest = hashlib.sha256((_yaml(data) + extra).encode()).hexdigest()[:10]
     # An empty `headers: {}` makes Traefik reject the whole file, so the marker sets one header.
     marker = {"headers": {"customResponseHeaders": {"X-TM-Rev": digest}}}
     data.setdefault("http", {}).setdefault("middlewares", {})[f"{REV_PREFIX}{name}-{digest}"] = marker
@@ -277,7 +290,7 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
 
     data = {"http": http}
     cert = app.get("cert")
-    if cert and not uses_letsencrypt(app):
+    if cert and uses_internal_ca(app):
         data["tls"] = {"certificates": [{"certFile": cert["cert_path"], "keyFile": cert["key_path"]}]}
     return _dump(data, slug)
 
@@ -337,11 +350,13 @@ ROOT_CA_DOWNLOAD = "/status/root_ca.crt"
 ICON_PATHS = ("/favicon.svg", "/apple-touch-icon.png")
 
 
-def render_core(config, manager_cert, sources=None, auth_users=None):
+def render_core(config, manager_cert, sources=None, auth_users=None, wildcard=None):
     """_core.yml: TLS defaults, shared middlewares and the manager/dashboard routers.
 
     sources, when set, limits the manager and dashboard further, on top of lan-only.
-    auth_users: htpasswd entries for the GUI login; None means BASIC_AUTH_USERS."""
+    auth_users: htpasswd entries for the GUI login; None means BASIC_AUTH_USERS.
+    wildcard: the stack's wildcard certificate (cert_path, key_path, fingerprint), once it is there and
+    checked. Traefik serves it for every name it covers that has no certificate of its own."""
     auth_users = list(config.basic_auth_users if auth_users is None else auth_users)
     middlewares = {
         "lan-only": {"ipAllowList": {"sourceRange": list(config.lan_cidrs)}},
@@ -431,4 +446,9 @@ def render_core(config, manager_cert, sources=None, auth_users=None):
         pair = {"certFile": manager_cert["cert_path"], "keyFile": manager_cert["key_path"]}
         data["tls"]["certificates"] = [dict(pair)]
         data["tls"]["stores"] = {"default": {"defaultCertificate": dict(pair)}}
-    return _dump(data, "core")
+    extra = ""
+    if wildcard:
+        data["tls"].setdefault("certificates", []).append(
+            {"certFile": wildcard["cert_path"], "keyFile": wildcard["key_path"]})
+        extra = wildcard["fingerprint"]
+    return _dump(data, "core", extra)

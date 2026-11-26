@@ -67,8 +67,8 @@ def traefik_check(api, slug):
 
 
 def _trust(config, app):
-    """TLS context for a check: the public roots for Let's Encrypt apps, else the internal root."""
-    if tc.uses_letsencrypt(app):
+    """TLS context for a check: the public roots for Let's Encrypt and wildcard apps, else the internal root."""
+    if not tc.uses_internal_ca(app):
         return ssl.create_default_context()
     return ssl.create_default_context(cafile=config.root_ca_path)
 
@@ -80,7 +80,7 @@ def _fetch_cert(config, fqdn, ctx, timeout):
 
 
 def served_cert_check(config, app, timeout=3):
-    """For a Let's Encrypt app: the cert Traefik serves for the FQDN, and whether it is trusted.
+    """For a Let's Encrypt or wildcard app: the cert Traefik serves for the FQDN, and whether it is trusted.
 
     Until Traefik has obtained the cert it serves its default one (the manager's internal
     cert), so an untrusted answer shortly after saving usually means "not issued yet"."""
@@ -101,12 +101,21 @@ def served_cert_check(config, app, timeout=3):
 
     info = pki.cert_info(cert)
     left = (pki.parse_iso(info["not_after"]) - pki.utcnow()).days
+    if error and tc.uses_wildcard(app):
+        return {**_r("warn", f"Traefik serves a certificate from {info['issuer']} that is not publicly trusted "
+                             f"({error}). The wildcard certificate is not loaded yet: see the Status page "
+                             "and the gateway-acme log."), "info": info}
     if error:
         return {**_r("warn", f"Traefik serves a certificate from {info['issuer']} that is not publicly trusted "
                              f"({error}). A new Let's Encrypt cert usually arrives within a few minutes of "
                              "saving; if it does not, look for acme errors in Traefik's log (Cloudflare "
                              "token, DNS)."), "info": info}
     status = "ok" if left > 14 else "warn"
+    if tc.uses_wildcard(app):
+        detail = f"Shared wildcard from {info['issuer']}, {left} days left"
+        if status == "warn":
+            detail += ". gateway-acme should have renewed it by now; check its log"
+        return {**_r(status, detail), "info": info}
     detail = f"Let's Encrypt cert from {info['issuer']}, {left} days left"
     if status == "warn":
         detail += ". Traefik should have renewed it by now; check Traefik's log for acme errors"
@@ -153,7 +162,7 @@ def run_checks(config, api, app, timeout=4):
         "backend": lambda: backend_check(app["backend_url"]),
         "traefik": lambda: traefik_check(api, "traefik-manager" if app.get("reserved") else app["slug"]),
     }
-    if tc.uses_letsencrypt(app) and app.get("enabled", True):
+    if not tc.uses_internal_ca(app) and app.get("enabled", True):
         jobs["certificate"] = lambda: served_cert_check(config, app)
     out = {}
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs))

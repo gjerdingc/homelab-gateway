@@ -19,7 +19,7 @@
 {% endmacro %}
 
 {% macro cert_badge(a) %}
-{% if a.cert_source == 'letsencrypt' %}<span class="badge badge-ok" title="Obtained and renewed by Traefik">Let's Encrypt</span>{% else %}{{ expiry(a.cert) }}{% endif %}
+{% if a.cert_source == 'letsencrypt' %}<span class="badge badge-ok" title="Obtained and renewed by Traefik">Let's Encrypt</span>{% elif a.cert_source == 'wildcard' %}<span class="badge badge-ok" title="The stack's shared Let's Encrypt wildcard, renewed by gateway-acme">Wildcard</span>{% else %}{{ expiry(a.cert) }}{% endif %}
 {% endmacro %}
 
 {% macro picker(name, label, options, selected, errors, placeholder, hint="") %}

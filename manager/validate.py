@@ -4,7 +4,7 @@ import ipaddress
 import re
 from urllib.parse import urlparse
 
-from config import HOSTNAME_RE, in_domains
+from config import HOSTNAME_RE, in_domains, wildcard_covers
 from traefik_config import CERT_SOURCES, format_rule, path_matches
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
@@ -290,12 +290,13 @@ def _same_endpoint(a, b):
 
 
 def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_list_names=(),
-                 letsencrypt_enabled=False, sso_domain=None, sso_auth_url=None):
+                 letsencrypt_enabled=False, sso_domain=None, sso_auth_url=None, wildcard_domain=None):
     """Validate form data. existing_apps is the full list of app records.
 
     letsencrypt_enabled: whether Traefik has the Let's Encrypt resolver (LETSENCRYPT_ENABLED).
     sso_domain: the oauth2-proxy cookie domain when Google sign-in is set up (SSO_ENABLED), else None.
     sso_auth_url: oauth2-proxy's address, so its own route can't be put behind itself.
+    wildcard_domain: the domain of the stack's wildcard certificate (WILDCARD_DOMAIN), else None.
 
     Returns (app_fields, errors) where errors maps a field name to a message."""
     errors = {}
@@ -360,11 +361,19 @@ def validate_app(form, existing_apps, allowed_domains, editing_slug=None, ip_lis
 
     cert_source = (form.get("cert_source") or "internal").strip()
     if cert_source not in CERT_SOURCES:
-        errors["cert_source"] = "Choose the internal CA or Let's Encrypt"
+        errors["cert_source"] = "Choose the internal CA, Let's Encrypt or the shared wildcard"
         cert_source = "internal"
     elif cert_source == "letsencrypt" and not letsencrypt_enabled:
         errors["cert_source"] = ("Let's Encrypt is not set up. Set LETSENCRYPT_ENABLED=true and the "
                                  "DNS provider credentials in the stack (see the README), or choose the internal CA.")
+    elif cert_source == "wildcard" and not wildcard_domain:
+        errors["cert_source"] = ("The shared wildcard is not set up. Set WILDCARD_DOMAIN and start the "
+                                 "wildcard profile (see the guide), or choose another certificate.")
+    elif cert_source == "wildcard":
+        outside = [n for n in [fqdn, *sans] if n and not wildcard_covers(wildcard_domain, n)]
+        if outside:
+            errors["cert_source"] = (f"The wildcard covers {wildcard_domain} and names one level below it "
+                                     f"(like app.{wildcard_domain}), not {', '.join(outside)}.")
 
     require_sign_in = bool(form.get("require_sign_in"))
     if require_sign_in:

@@ -274,7 +274,8 @@ Validate all of these at startup. On bad config, log a clear error and show it o
 | `SSO_AUTH_HOST` | no | `auth.<SSO_DOMAIN>` | Name of the sign-in route (`sso-signin` router, manager cert SAN, oauth2-proxy's redirect URL). Must be under `SSO_DOMAIN`. Set per stack when two stacks share `SSO_DOMAIN` |
 | `OAUTH_COOKIE_NAME` | no | `_oauth2_proxy` | oauth2-proxy only (compose). Set per stack when two stacks share `SSO_DOMAIN` |
 | `OAUTH_COOKIE_SECRET` | no | – | oauth2-proxy only (compose). Overrides the generated `cookie-secret` file; for stacks that deliberately share one sign-in |
-| `SSO_AUTH_CERT` | no | `internal` | Certificate for the sign-in page: `internal` adds the name to the manager's certificate; `letsencrypt` sets `tls.certResolver` on the `sso-signin` router instead and leaves the name off (needs `LETSENCRYPT_ENABLED`) |
+| `SSO_AUTH_CERT` | no | `internal` | Certificate for the sign-in page: `internal` adds the name to the manager's certificate; `letsencrypt` sets `tls.certResolver` on the `sso-signin` router instead and leaves the name off (needs `LETSENCRYPT_ENABLED`); `wildcard` leaves the name off so the wildcard serves it (needs `WILDCARD_DOMAIN`, and the host one level below it) |
+| `WILDCARD_DOMAIN` | no | – | The stack's wildcard certificate (`gateway-acme`, profile `wildcard`) covers this and `*.` it. Offers `cert_source: wildcard`; the manager adds `/etc/traefik/wildcard/{fullchain,key}.pem` to `_core.yml`'s `tls.certificates` once the key matches and both names are covered, with the certificate's SHA-256 in the revision marker so a renewal reloads Traefik. Checked every 60 s (`TM_WILDCARD_DIR` overrides the folder) |
 | `SSO_DOMAIN` | if `SSO_ENABLED` | – | oauth2-proxy's cookie domain, e.g. `oplassen.net`. Must be inside `ALLOWED_DOMAINS`; apps with sign-in must have all their names under it |
 | `SSO_AUTH_URL` | no | `http://oauth2-proxy:4180` | oauth2-proxy as Traefik reaches it; the ForwardAuth address is this URL with `/` |
 
@@ -291,7 +292,7 @@ apps:
     fqdn: grafana.gjecorp.net           # unique across apps, must match ALLOWED_DOMAINS
     extra_sans: [grafana2.gjecorp.net]  # optional DNS SANs (also domain-checked)
     backend_url: http://grafana:3000    # http|https://host:port[/path-prefix not allowed]
-    cert_source: internal               # internal (signed here) | letsencrypt (Traefik ACME, DNS-01 via Cloudflare; no cert record)
+    cert_source: internal               # internal (signed here) | letsencrypt (Traefik ACME, DNS-01 via Cloudflare; no cert record) | wildcard (the stack's shared certificate from gateway-acme; no cert record)
     backend_tls_skip_verify: false      # only for https backends with untrusted certs
     pass_host_header: true
     lan_only: true                      # attach lan-only middleware (default true)
@@ -383,6 +384,8 @@ tls:
   - Therefore the manager must **not** use any URL under `/api` or `/dashboard`. Use e.g. `/apps`, `/status`, `/log`, `/static`. The GUI links to `/dashboard/` from the nav bar.
 
 **Let's Encrypt apps** (`cert_source: letsencrypt`): the router gets `tls: {certResolver: <LETSENCRYPT_RESOLVER>}` and the file has no `tls.certificates`. Traefik obtains, stores (`acme.json`) and renews the cert; the manager issues nothing, skips these apps when renewing, and shows the cert Traefik serves (the "Certificate" check). The end-to-end check verifies them against the public roots instead of the internal root.
+
+**Wildcard apps** (`cert_source: wildcard`): the router gets `tls: {}` and the file has no `tls.certificates`; Traefik picks the wildcard from `_core.yml` by SNI (a name with its own certificate keeps it). Allowed only when `WILDCARD_DOMAIN` is set and every name is that domain or one label below it. The manager issues and renews nothing for them; `gateway-acme` renews the certificate, and the Certificate check verifies what Traefik serves against the public roots.
 
 **Bootstrap:** on first start, if the manager has no cert of its own, issue one for `MANAGER_FQDN` and write `_core.yml`. Store it in `apps.yml` under a reserved `_manager` entry. It renews like any app but can't be deleted from the GUI.
 

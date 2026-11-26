@@ -17,6 +17,7 @@ import yaml
 import pki
 import store as st
 import traefik_config as tc
+import wildcard
 from validate import admits, validate_access, validate_app, validate_emails, validate_ip_list, validate_members
 
 MANAGER_SLUG = tc.RESERVED
@@ -140,19 +141,20 @@ class Manager:
     def render_for(self, app, lists=None):
         if app.get("reserved"):
             return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)),
-                                  self.login.users() if self.login else None)
+                                  self.login.users() if self.login else None, self.wildcard_for_traefik())
         return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver, self.config.manager_backend)
 
     def routable(self, app):
-        """True when the app's file can be written: it has an internal cert, or Traefik gets one."""
-        return bool(app.get("cert")) or tc.uses_letsencrypt(app)
+        """True when the app's file can be written: it has an internal cert, or its cert comes from
+        elsewhere (Let's Encrypt through Traefik, or the stack's wildcard)."""
+        return bool(app.get("cert")) or not tc.uses_internal_ca(app)
 
     def _needs_internal_cert(self, app, prev):
         """Whether an internal-CA app needs a new cert: new names, missing files, expired, or it
-        was a Let's Encrypt app until now."""
-        if tc.uses_letsencrypt(app):
+        had its certificate from elsewhere until now."""
+        if not tc.uses_internal_ca(app):
             return False
-        return (prev is None or tc.uses_letsencrypt(prev) or _names(app) != _names(prev)
+        return (prev is None or not tc.uses_internal_ca(prev) or _names(app) != _names(prev)
                 or not self.cert_files_exist(prev) or self.cert_expired(prev))
 
     def cert_expired(self, app):
@@ -164,8 +166,8 @@ class Manager:
         return bool(cert) and os.path.isfile(cert["cert_path"]) and os.path.isfile(cert["key_path"])
 
     def due_for_renewal(self, app):
-        if tc.uses_letsencrypt(app):
-            return False  # Traefik renews these itself
+        if not tc.uses_internal_ca(app):
+            return False  # Traefik or gateway-acme renews these
         if not self.cert_files_exist(app):
             return True
         not_after = pki.parse_iso(app["cert"]["not_after"])
@@ -181,6 +183,8 @@ class Manager:
     def _write_if_changed(self, path, text):
         if st.read_text(path) != text:
             st.atomic_write(path, text)
+            return True
+        return False
 
     def _remove_managed(self, path):
         text = st.read_text(path)
@@ -237,8 +241,9 @@ class Manager:
         saved_data = copy.deepcopy(data)
         written = []
         try:
-            if tc.uses_letsencrypt(app):
-                # Traefik obtains and stores this cert (acme.json); the manager keeps none.
+            if not tc.uses_internal_ca(app):
+                # Traefik obtains and stores this cert (acme.json), or it is the stack's wildcard;
+                # the manager keeps none for the app.
                 app.pop("cert", None)
             elif reissue:
                 app["cert"] = self._issue(app, written)
@@ -330,7 +335,7 @@ class Manager:
         return validate_app(form, self.apps(), self.config.allowed_domains, editing_slug,
                             [l["name"] for l in self.ip_lists()], self.config.letsencrypt_enabled,
                             self.config.sso_domain if self.config.sso_enabled else None,
-                            self.config.sso_auth_url)
+                            self.config.sso_auth_url, self.config.wildcard_domain or None)
 
     def create_app(self, form):
         self._require_ready()
@@ -363,6 +368,9 @@ class Manager:
             if tc.uses_letsencrypt(prev):
                 raise ApplyError(f"{prev['fqdn']} uses Let's Encrypt. Traefik renews it by itself, "
                                  "about 30 days before it expires.")
+            if tc.uses_wildcard(prev):
+                raise ApplyError(f"{prev['fqdn']} uses the shared wildcard certificate. The gateway-acme "
+                                 "container renews it, about 30 days before it expires.")
             app = copy.deepcopy(prev)
             if app.get("reserved"):
                 app["fqdn"], app["extra_sans"] = self.config.manager_fqdn, self._manager_sans()
@@ -375,7 +383,7 @@ class Manager:
             if not prev or prev.get("reserved"):
                 raise ApplyError(f"App {slug!r} cannot be enabled/disabled")
             app = {**copy.deepcopy(prev), "enabled": enabled}
-            reissue = enabled and not tc.uses_letsencrypt(prev) and (
+            reissue = enabled and tc.uses_internal_ca(prev) and (
                 not self.cert_files_exist(prev) or self.cert_expired(prev))
             return self._apply(app, prev, reissue, "enabled" if enabled else "disabled")
 
@@ -569,7 +577,8 @@ class Manager:
         """The manager's certificate also covers the sign-in route (auth.<SSO_DOMAIN> or SSO_AUTH_HOST), unless
         Traefik gets that one from Let's Encrypt."""
         c = self.config
-        return [c.sso_auth_host] if c.sso_enabled and c.sso_auth_host and not c.sso_auth_letsencrypt else []
+        own = not (c.sso_auth_letsencrypt or c.sso_auth_wildcard)
+        return [c.sso_auth_host] if c.sso_enabled and c.sso_auth_host and own else []
 
     def _manager_record(self):
         rec = self.get(MANAGER_SLUG)
@@ -805,8 +814,35 @@ class Manager:
     def letsencrypt_apps(self):
         return [a for a in self.user_apps() if tc.uses_letsencrypt(a)]
 
+    def wildcard_apps(self):
+        return [a for a in self.user_apps() if tc.uses_wildcard(a)]
+
+    # ---- the stack's wildcard certificate (gateway-acme) -------------------------
+
+    def wildcard(self):
+        """What is in the wildcard folder now, for the Status page and the app form."""
+        return wildcard.read(self.config)
+
+    def wildcard_for_traefik(self):
+        info = self.wildcard()
+        return info if info["state"] == "ok" else None
+
+    def wildcard_changed(self):
+        """The files changed: write _core.yml again, which lists the new ones (or drops bad ones)."""
+        with self.lock:
+            mgr = self.get(MANAGER_SLUG)
+            if not mgr or not self.config.ok:
+                return
+            info = self.wildcard()
+            if self._write_if_changed(self._core_path, self.render_for(mgr)):
+                if info["state"] == "ok":
+                    self.actions.write(f"wildcard certificate for {info['domain']} loaded, "
+                                       f"expires {info['not_after'][:10]}")
+                else:
+                    self.actions.write(f"wildcard certificate left out: {info.get('problem')}", "ERROR")
+
     def cert_details(self, app):
         """The internal cert on disk. Let's Encrypt certs live in Traefik's acme.json, which the
         manager can't read, so the detail page asks Traefik for the served cert instead."""
-        cert = pki.load_cert_file(app["cert"]["cert_path"]) if app.get("cert") and not tc.uses_letsencrypt(app) else None
+        cert = pki.load_cert_file(app["cert"]["cert_path"]) if app.get("cert") and tc.uses_internal_ca(app) else None
         return pki.cert_info(cert) if cert else None

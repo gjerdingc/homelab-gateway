@@ -542,3 +542,42 @@ def test_path_rules_against_real_traefik(tmp_path, pki_session):
         stack.close()
         auth.shutdown()
         signin.shutdown()
+
+
+def served_serial(stack, host):
+    """Serial of the certificate Traefik serves for host, trusted or not."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+    with socket.create_connection(("127.0.0.1", stack.https), timeout=5) as raw:
+        with ctx.wrap_socket(raw, server_hostname=host) as tls:
+            return format(x509.load_der_x509_certificate(tls.getpeercert(binary_form=True)).serial_number, "x")
+
+
+def test_wildcard_against_real_traefik(tmp_path, pki_session):
+    import wildcard
+    from test_wildcard import write_wildcard
+
+    stack = Stack(tmp_path, pki_session, WILDCARD_DOMAIN="gjecorp.net", TM_WILDCARD_DIR=str(tmp_path / "wildcard"))
+    try:
+        m = stack.manager
+        m.startup()
+        assert m.create_app({**FORM, "cert_source": "wildcard"}).verified
+        assert m.create_app({**FORM, "slug": "wiki", "fqdn": "wiki.gjecorp.net"}).verified
+        wiki_serial = m.get("wiki")["cert"]["serial"]
+        mgr_serial = m.get("_manager")["cert"]["serial"]
+        # Before gateway-acme has written it, the app gets the default (manager's) certificate.
+        assert served_serial(stack, "grafana.gjecorp.net") == mgr_serial
+        watcher = wildcard.Watcher(m)
+        watcher._seen = (None, None)
+        first = write_wildcard(m.config.wildcard_dir)
+        watcher.check(), watcher.check()
+        stack.until(lambda: served_serial(stack, "grafana.gjecorp.net") == format(first.serial_number, "x"))
+        # Names with a certificate of their own keep it; the manager's name too.
+        assert served_serial(stack, "wiki.gjecorp.net") == wiki_serial
+        assert served_serial(stack, "traefik.gjecorp.net") == mgr_serial
+        # A renewal replaces only the files; Traefik picks up the new certificate.
+        second = write_wildcard(m.config.wildcard_dir)
+        watcher.check(), watcher.check()
+        stack.until(lambda: served_serial(stack, "grafana.gjecorp.net") == format(second.serial_number, "x"))
+    finally:
+        stack.close()

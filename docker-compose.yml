@@ -58,6 +58,8 @@ services:
       - ${TM_ROOT:-/opt/traefik}/logs:/var/log/traefik
       # Let's Encrypt account and certificates (acme.json, created by Traefik with mode 600)
       - ${TM_ROOT:-/opt/traefik}/acme:/etc/traefik/acme
+      # The stack's wildcard certificate and key, written by gateway-acme (wildcard profile)
+      - ${TM_ROOT:-/opt/traefik}/wildcard:/etc/traefik/wildcard:ro
       # The root CERTIFICATE's folder (a folder, so it can be mounted before the manager creates the
       # certificate on first start). Traefik never sees the intermediate key. Keep no root key here.
       - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root:ro
@@ -145,8 +147,12 @@ services:
       SSO_AUTH_URL: ${SSO_AUTH_URL:-http://oauth2-proxy:4180}
       # Name of the sign-in page; default auth.<SSO_DOMAIN>. Give each stack its own when two share SSO_DOMAIN.
       SSO_AUTH_HOST: ${SSO_AUTH_HOST:-}
-      # Certificate for the sign-in page: internal (default) or letsencrypt (needs LETSENCRYPT_ENABLED)
+      # Certificate for the sign-in page: internal (default), letsencrypt (needs LETSENCRYPT_ENABLED)
+      # or wildcard (needs WILDCARD_DOMAIN)
       SSO_AUTH_CERT: ${SSO_AUTH_CERT:-internal}
+      # The stack's Let's Encrypt wildcard (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN), from gateway-acme below.
+      # Set it, and add wildcard to COMPOSE_PROFILES, to offer "Shared wildcard" on the app form.
+      WILDCARD_DOMAIN: ${WILDCARD_DOMAIN:-}
     volumes:
       - ${TM_ROOT:-/opt/traefik}/dynamic:/etc/traefik/dynamic
       - ${TM_ROOT:-/opt/traefik}/certs:/etc/traefik/certs
@@ -159,8 +165,49 @@ services:
       - ${PKI_DIR:-/opt/traefik/pki}/root:/pki/root
       # oauth2-proxy's allow-list (emails.txt), edited on the Settings page
       - ${TM_ROOT:-/opt/traefik}/oauth2-proxy:/oauth2-proxy
+      # The wildcard certificate: read, checked, then listed for Traefik (and shown on Status)
+      - ${TM_ROOT:-/opt/traefik}/wildcard:/etc/traefik/wildcard:ro
     networks: [proxy]
     depends_on: [traefik]
+
+  # One Let's Encrypt wildcard certificate for the stack (WILDCARD_DOMAIN and *.WILDCARD_DOMAIN), from acme.sh
+  # with a DNS challenge at Cloudflare. Only started with COMPOSE_PROFILES including wildcard. With PANOS_HOST
+  # set it also puts every new certificate on the Palo Alto firewall, for SSL Inbound Inspection.
+  # See "Wildcard certificate" in docs/guide.md. No ports, and not on the proxy network: it only talks out
+  # (Let's Encrypt, Cloudflare, the firewall).
+  gateway-acme:
+    image: ${TM_ACME_IMAGE:-ghcr.io/gjerdingc/gateway-acme}:${TM_VERSION:-latest}
+    pull_policy: ${TM_PULL_POLICY:-always}
+    container_name: gateway-acme
+    profiles: [wildcard]
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+      WILDCARD_DOMAIN: ${WILDCARD_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      # letsencrypt (default), letsencrypt_test (staging, untrusted certs) or a directory URL
+      ACME_CA_SERVER: ${ACME_CA_SERVER:-letsencrypt}
+      # The same Cloudflare token as Traefik's (Zone:DNS:Edit and Zone:Zone:Read on the zone)
+      CF_Token: ${CF_DNS_API_TOKEN:-}
+      CF_Zone_ID: ${CF_ZONE_ID:-}
+      # Firewall (leave PANOS_HOST empty to skip). An admin whose role allows only XML API import and
+      # commit. PANOS_KEY is that admin's API key; or PANOS_PASS and acme.sh makes the key itself.
+      PANOS_HOST: ${PANOS_HOST:-}
+      PANOS_USER: ${PANOS_USER:-}
+      PANOS_KEY: ${PANOS_KEY:-}
+      PANOS_PASS: ${PANOS_PASS:-}
+      # The certificate's name on the firewall, which the decryption policy points at
+      PANOS_CERTNAME: ${PANOS_CERTNAME:-gateway-wildcard}
+      # How to trust the firewall's web interface: a CA file inside the container (mount it), or false
+      # to not check it (its default certificate is self-signed)
+      PANOS_CA_FILE: ${PANOS_CA_FILE:-}
+      PANOS_TLS_VERIFY: ${PANOS_TLS_VERIFY:-true}
+    volumes:
+      # acme.sh's account, settings and certificates. Holds the Cloudflare token and the firewall's API
+      # key as well: back it up like a secret.
+      - ${TM_ROOT:-/opt/traefik}/gateway-acme:/acme.sh
+      # Where Traefik and the manager read the certificate (fullchain.pem, key.pem)
+      - ${TM_ROOT:-/opt/traefik}/wildcard:/out
 
   # Google sign-in for the apps you pick. Only started with COMPOSE_PROFILES=sso; needs
   # SSO_DOMAIN and the three OAUTH_* values (see "Google sign-in" in docs/guide.md).

@@ -93,6 +93,7 @@ Set these in the installer's `.env` (`/opt/homelab-gateway/.env`, then `docker c
 | `ACME_DNS_PROVIDER` | `cloudflare` | Where your domain's public DNS is: `cloudflare`, `route53`, `digitalocean`, `hetzner`, `ovh` or `porkbun` |
 | *the provider's token* | `CF_DNS_API_TOKEN=…` | Cloudflare `CF_DNS_API_TOKEN` · DigitalOcean `DO_AUTH_TOKEN` · Hetzner `HETZNER_API_TOKEN` · Porkbun `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` · AWS and OVH: see `.env.example` |
 | `ACME_EMAIL` | `you@example.com` | Optional contact for Let's Encrypt |
+| `WILDCARD_DOMAIN` | `example.com` | One wildcard certificate for the stack, from the `gateway-acme` container (add `wildcard` to `COMPOSE_PROFILES`). Can also go on a Palo Alto firewall for inbound decryption ([setup](docs/guide.md#wildcard-certificate)) |
 
 **Login and Google sign-in** (optional)
 

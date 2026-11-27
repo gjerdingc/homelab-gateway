@@ -272,7 +272,13 @@ services:
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
       OAUTH2_PROXY_UPSTREAMS: static://202
-      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      # Show the sign-in page (a button for Google) instead of going straight to Google. The page and
+      # the error page are the manager's (manager/sso_pages), copied to templates/ on its start.
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "false"
+      OAUTH2_PROXY_CUSTOM_TEMPLATES_DIR: /etc/oauth2-proxy/templates
+      OAUTH2_PROXY_FOOTER: "-"
+      # Google asks which account to use, so "Try another account" on the error page works.
+      OAUTH2_PROXY_PROMPT: select_account
       OAUTH2_PROXY_SCOPE: openid email profile
       # Only these addresses may sign in: the list on the manager's Settings page.
       OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt

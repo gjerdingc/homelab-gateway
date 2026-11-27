@@ -633,6 +633,8 @@ class Manager:
     def startup(self):
         """Run once at boot. Failures are kept for the GUI banner, never raised."""
         if self.config.ok:
+            # Before the allow-list: oauth2-proxy waits for that file, so it then starts with these pages.
+            self.ensure_sso_pages()
             self.ensure_sso_allow_list()
             self.ensure_sso_cookie_secret()
             self.ensure_sso_log_dir()
@@ -699,6 +701,36 @@ class Manager:
             os.chmod(path, 0o644)  # oauth2-proxy runs as a non-root user
         except OSError as exc:
             raise ApplyError(f"Could not write the sign-in allow-list {path}: {exc}")
+
+    def ensure_sso_pages(self):
+        """oauth2-proxy's sign-in and error pages (sso_pages/), copied to <sso_dir>/templates.
+
+        Rewritten when this version's pages differ, so an upgrade brings the new ones. oauth2-proxy
+        reads them when it starts; without them it shows its own pages."""
+        if not self.config.sso_enabled:
+            return []
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sso_pages")
+        dest = self.config.sso_pages_dir
+        written = []
+        try:
+            os.makedirs(dest, exist_ok=True)
+            os.chmod(dest, 0o755)
+            for name in ("sign_in.html", "error.html"):
+                with open(os.path.join(src, name), encoding="utf-8") as f:
+                    text = f.read()
+                path = os.path.join(dest, name)
+                if st.read_text(path) == text:
+                    continue
+                with open(path, "w") as f:
+                    f.write(text)
+                os.chmod(path, 0o644)  # oauth2-proxy runs as a non-root user
+                written.append(name)
+        except OSError as exc:
+            self.actions.write(f"could not write oauth2-proxy's sign-in pages to {dest}: {exc}", "ERROR")
+            return written
+        if written:
+            self.actions.write(f"wrote oauth2-proxy's sign-in pages: {', '.join(written)}")
+        return written
 
     def ensure_sso_allow_list(self):
         """An empty emails.txt on first start, so oauth2-proxy can start (and let nobody in)."""

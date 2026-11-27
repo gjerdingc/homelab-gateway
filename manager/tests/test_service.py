@@ -677,3 +677,22 @@ def test_cookie_secret_is_made_once_and_private(sso_manager):
 def test_no_cookie_secret_without_sign_in(manager):
     manager.startup()
     assert not os.path.exists(manager.config.sso_cookie_secret_path)
+
+
+def test_sign_in_pages_are_copied_for_oauth2_proxy(sso_manager):
+    m = sso_manager
+    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sso_pages")
+    for name in ("sign_in.html", "error.html"):
+        path = os.path.join(m.config.sso_pages_dir, name)
+        assert open(path).read() == open(os.path.join(src, name)).read()
+        assert oct(os.stat(path).st_mode & 0o777) == "0o644"
+    # Unchanged: left alone. Changed (an older version's page): replaced.
+    assert m.ensure_sso_pages() == []
+    with open(os.path.join(m.config.sso_pages_dir, "error.html"), "w") as f:
+        f.write("old")
+    assert m.ensure_sso_pages() == ["error.html"]
+
+
+def test_no_sign_in_pages_without_sso(manager):
+    assert manager.ensure_sso_pages() == []
+    assert not os.path.exists(manager.config.sso_pages_dir)

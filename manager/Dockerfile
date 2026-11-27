@@ -7,6 +7,7 @@ WORKDIR /app
 COPY *.py ./
 COPY templates ./templates
 COPY static ./static
+COPY sso_pages ./sso_pages
 
 ENV TM_DATA_DIR=/data \
     PYTHONUNBUFFERED=1

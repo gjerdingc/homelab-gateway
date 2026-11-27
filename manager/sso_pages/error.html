@@ -1,0 +1,121 @@
+{{define "error.html"}}<!doctype html>
+{{/* oauth2-proxy's error page, shown instead of its own (OAUTH2_PROXY_CUSTOM_TEMPLATES_DIR), for
+     instance when a Google account that may not sign in tries to. Copied by the manager to
+     <TM_ROOT>/oauth2-proxy/templates on start. Fields: .StatusCode .Title .Message .Redirect .RequestID */}}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>{{ if eq .StatusCode 403 }}Not allowed{{ else }}{{.StatusCode}} {{.Title}}{{ end }}</title>
+<style>
+  :root {
+    --bg1: #eef2fb; --bg2: #f7f1fa; --card: rgba(255, 255, 255, .86); --text: #1d2430; --muted: #5b6575;
+    --line: #e2e5ea; --accent: #2f6fde; --accent-text: #ffffff; --accent2: #7b5be0; --soft: #fdf0e1;
+    --soft-text: #8a4b06; --code: #f4f5f7; --btn: #ffffff; --btn-line: #d5dae2;
+    --shadow: 0 24px 60px rgba(31, 45, 80, .14), 0 2px 6px rgba(31, 45, 80, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg1: #0f1420; --bg2: #161226; --card: rgba(27, 32, 43, .86); --text: #e6e9ef; --muted: #9aa3b2;
+      --line: #2b313c; --accent: #6b9cff; --accent-text: #0c1220; --accent2: #a58bff; --soft: #3a2a14;
+      --soft-text: #f3c27e; --code: #12151b; --btn: #232a36; --btn-line: #343c4a;
+      --shadow: 0 24px 60px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px; color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(900px 600px at 12% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      radial-gradient(800px 600px at 110% 110%, color-mix(in srgb, var(--accent2) 20%, transparent), transparent 70%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+    background-color: var(--bg1);
+  }
+  main {
+    width: 100%; max-width: 440px; text-align: center; padding: 40px 32px 30px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  }
+  .icon { width: 68px; height: 68px; margin: 0 auto 18px; display: block; }
+  .i-bg { fill: var(--soft); }
+  .i-line { fill: none; stroke: var(--soft-text); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .i-dot { fill: var(--soft-text); }
+  .tag {
+    display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    background: var(--soft); color: var(--soft-text); border-radius: 999px; padding: 3px 10px; margin-bottom: 12px;
+  }
+  h1 { font-size: 22px; line-height: 1.3; margin: 0 0 10px; letter-spacing: -.01em; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  h1, p { text-wrap: balance; }
+  details { margin: 6px 0 18px; text-align: left; font-size: 13px; color: var(--muted); }
+  summary { cursor: pointer; text-align: center; }
+  .detail {
+    margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
+  .actions form { margin: 0; }
+  .btn {
+    font: 600 15px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; border-radius: 12px;
+    padding: 12px 18px; cursor: pointer; border: 1px solid var(--btn-line); background: var(--btn); color: var(--text);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+    <circle class="i-bg" cx="32" cy="32" r="30"/>
+    {{ if eq .StatusCode 403 401 }}
+    <rect class="i-line" x="20" y="29" width="24" height="18" rx="4"/>
+    <path class="i-line" d="M25 29v-5a7 7 0 0 1 14 0v5"/>
+    <circle class="i-dot" cx="32" cy="38" r="2.5"/>
+    {{ else }}
+    <path class="i-line" d="M32 19v16"/>
+    <circle class="i-dot" cx="32" cy="44" r="2.5"/>
+    {{ end }}
+  </svg>
+  <span class="tag">Error {{.StatusCode}}</span>
+  {{ if eq .StatusCode 403 }}
+  <h1>This account can't sign in here</h1>
+  <p>Google confirmed who you are, but this Google account isn't on the list of people who may sign in.</p>
+  <p>If you should have access, ask the person who runs this site to add your account, or try again with another Google account.</p>
+  {{ else if eq .StatusCode 401 }}
+  <h1>You need to sign in</h1>
+  <p>Your sign-in has ended or didn't finish. Please sign in again.</p>
+  {{ else if eq .StatusCode 400 }}
+  <h1>The sign-in didn't finish</h1>
+  <p>This usually happens when the sign-in took too long, or was started in another tab. Please try again.</p>
+  {{ else if eq .StatusCode 404 }}
+  <h1>Page not found</h1>
+  <p>There's nothing at this address.</p>
+  {{ else }}
+  <h1>Something went wrong</h1>
+  <p>The sign-in service ran into a problem. Please try again in a moment.</p>
+  {{ end }}
+
+  {{ if or .Message .RequestID }}
+  <details>
+    <summary>Details</summary>
+    <div class="detail">{{ if .Message }}{{.Message}}{{ end }}{{ if .RequestID }}<br>Request ID: {{.RequestID}}{{ end }}</div>
+  </details>
+  {{ end }}
+
+  {{ if .Redirect }}
+  <div class="actions">
+    <form method="GET" action="{{.ProxyPrefix}}/sign_in">
+      <input type="hidden" name="rd" value="{{.Redirect}}">
+      <button type="submit" class="btn primary">{{ if eq .StatusCode 403 }}Try another account{{ else }}Sign in again{{ end }}</button>
+    </form>
+  </div>
+  {{ end }}
+</main>
+</body>
+</html>
+{{end}}

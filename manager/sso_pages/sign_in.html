@@ -1,0 +1,125 @@
+{{define "sign_in.html"}}<!doctype html>
+{{/* oauth2-proxy's sign-in page, shown instead of its own (OAUTH2_PROXY_CUSTOM_TEMPLATES_DIR).
+     The manager copies this file to <TM_ROOT>/oauth2-proxy/templates on start. It is a Go template:
+     .Redirect is the page to return to, .ProxyPrefix is /oauth2. Self-contained, no outside files. */}}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Sign in</title>
+<style>
+  :root {
+    --bg1: #eef2fb; --bg2: #f7f1fa; --card: rgba(255, 255, 255, .86); --text: #1d2430; --muted: #5b6575;
+    --line: #e2e5ea; --accent: #2f6fde; --accent2: #7b5be0; --soft: #e8effd; --btn: #ffffff; --btn-line: #d5dae2;
+    --btn-hover: #f6f8fb; --shadow: 0 24px 60px rgba(31, 45, 80, .14), 0 2px 6px rgba(31, 45, 80, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg1: #0f1420; --bg2: #161226; --card: rgba(27, 32, 43, .86); --text: #e6e9ef; --muted: #9aa3b2;
+      --line: #2b313c; --accent: #6b9cff; --accent2: #a58bff; --soft: #1d2a45; --btn: #232a36; --btn-line: #343c4a;
+      --btn-hover: #2a3240; --shadow: 0 24px 60px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px; color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(900px 600px at 12% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      radial-gradient(800px 600px at 110% 110%, color-mix(in srgb, var(--accent2) 20%, transparent), transparent 70%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+    background-color: var(--bg1);
+  }
+  main {
+    width: 100%; max-width: 400px; text-align: center; padding: 40px 32px 30px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    animation: rise .5s cubic-bezier(.2, .8, .2, 1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+  @media (prefers-reduced-motion: reduce) { main { animation: none; } }
+  .mark { width: 76px; height: 76px; margin: 0 auto 22px; display: block; }
+  .m-bg { fill: var(--soft); }
+  .m-roof { fill: none; stroke: var(--accent); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+  .m-door { fill: var(--accent); }
+  .m-hole { fill: var(--soft); }
+  h1 { font-size: 24px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.01em; }
+  h1, p { text-wrap: balance; }
+  .lead { margin: 0 0 6px; color: var(--muted); }
+  .site {
+    display: inline-block; max-width: 100%; margin: 10px 0 0; padding: 5px 12px; border-radius: 999px;
+    background: var(--soft); color: var(--accent); font-weight: 600; font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .site[hidden] { display: none; }
+  .msg { margin: 18px 0 0; color: var(--muted); font-size: 14px; }
+  form { margin: 28px 0 0; }
+  .google {
+    display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%;
+    font: 600 15px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text);
+    background: var(--btn); border: 1px solid var(--btn-line); border-radius: 12px; padding: 14px 18px;
+    cursor: pointer; transition: background .15s, box-shadow .15s, transform .05s;
+  }
+  .google:hover { background: var(--btn-hover); box-shadow: 0 4px 14px rgba(31, 45, 80, .10); }
+  .google:active { transform: translateY(1px); }
+  .google:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .google svg { width: 20px; height: 20px; flex: none; }
+  .note { margin: 22px 0 0; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <svg class="mark" viewBox="0 0 76 76" aria-hidden="true">
+    <circle class="m-bg" cx="38" cy="38" r="36"/>
+    <path class="m-roof" d="M19 37 38 21l19 16"/>
+    <path class="m-roof" d="M24 33v19a3 3 0 0 0 3 3h22a3 3 0 0 0 3-3V33"/>
+    <rect class="m-door" x="32" y="39" width="12" height="16" rx="2.5"/>
+    <circle class="m-hole" cx="38" cy="45" r="2"/>
+    <rect class="m-hole" x="37" y="45" width="2" height="5" rx="1"/>
+  </svg>
+  <h1>Welcome back</h1>
+  <p class="lead">Sign in to continue</p>
+  <span class="site" id="site" hidden></span>
+  {{ if .SignInMessage }}<p class="msg">{{.SignInMessage}}</p>{{ end }}
+
+  <form method="GET" action="{{.ProxyPrefix}}/start">
+    <input type="hidden" name="rd" value="{{.Redirect}}">
+    <button type="submit" class="google">
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      <span>Sign in with Google</span>
+    </button>
+  </form>
+  <p class="note">Only accounts that have been given access can sign in.</p>
+</main>
+<script>
+  (function () {
+    var inputs = document.getElementsByName("rd");
+    // Keep the #part of the address, which the server never sees (as oauth2-proxy's own page does).
+    if (window.location.hash) {
+      for (var i = 0; i < inputs.length; i++) {
+        var idx = inputs[i].value.indexOf("#");
+        if (idx >= 0) inputs[i].value = inputs[i].value.substr(0, idx);
+        inputs[i].value += window.location.hash;
+      }
+    }
+    // Show which site the sign-in is for.
+    try {
+      var host = new URL(inputs[0].value, window.location.href).hostname || window.location.hostname;
+      var site = document.getElementById("site");
+      site.textContent = host;
+      site.hidden = false;
+    } catch (e) {}
+  })();
+</script>
+</body>
+</html>
+{{end}}

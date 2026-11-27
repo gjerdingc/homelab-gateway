@@ -467,7 +467,7 @@ Good to know:
 
 Apps you pick can require a Google sign-in before Traefik lets a request through. The sign-in itself is done by **oauth2-proxy**, which is part of this stack but only starts when you turn sign-in on (the Compose profile `sso`). The manager adds a ForwardAuth middleware to the apps you pick, routes the sign-in page, and writes oauth2-proxy's list of allowed accounts.
 
-How a request goes: the app's router runs `sso@file`, which first removes any `X-Auth-Request-*` headers the client sent, then asks oauth2-proxy. With a valid sign-in cookie oauth2-proxy answers 202 and Traefik passes the request on, with `X-Auth-Request-Email` and `X-Auth-Request-User` set to the signed-in user. Without a cookie the browser goes to Google, back to `https://auth.<SSO_DOMAIN>/oauth2/callback`, and on to the page it asked for. One sign-in covers every app under `SSO_DOMAIN`.
+How a request goes: the app's router runs `sso@file`, which first removes any `X-Auth-Request-*` headers the client sent, then asks oauth2-proxy. With a valid sign-in cookie oauth2-proxy answers 202 and Traefik passes the request on, with `X-Auth-Request-Email` and `X-Auth-Request-User` set to the signed-in user. Without a cookie the browser gets the sign-in page (a *Sign in with Google* button, showing which site it is for), then goes to Google, which asks which account to use, back to `https://auth.<SSO_DOMAIN>/oauth2/callback`, and on to the page it asked for. One sign-in covers every app under `SSO_DOMAIN`.
 
 The examples use `lab.example.com` as `SSO_DOMAIN`.
 
@@ -496,6 +496,8 @@ The examples use `lab.example.com` as `SSO_DOMAIN`.
 7. **Who may open each app** (optional): on the app's edit page, under *Who may open it*, keep *Everyone who can sign in*, or choose *Only the people picked here* and pick people from the Settings list. The app list then shows *sign-in: 2* (the number picked).
 
 On the first deploy oauth2-proxy may restart once or twice: it waits for the manager to create its allow-list (`<TM_ROOT>/oauth2-proxy/emails.txt`).
+
+The sign-in page and oauth2-proxy's error page (for instance *This account can't sign in here* for a Google account not on the list) are the manager's own, in `manager/sso_pages/`. The manager copies them to `<TM_ROOT>/oauth2-proxy/templates/` when it starts, and oauth2-proxy reads them when it starts. After an upgrade that changes them, restart oauth2-proxy too (redeploying the stack does). Pages that ask for sign-in from a script (`Accept: application/json`) still get a plain 401.
 
 ### Good to know
 
@@ -569,7 +571,7 @@ Good to know:
 - **People picked** under *Who may open it* apply to `sign-in` rules too.
 - Every route of an app with rules drops `X-Auth-Request-*` headers a client sent, so the app can trust `X-Auth-Request-Email` wherever it is set: only a signed-in user ever has it.
 - `optional`, `sign-in=401` and `sign-in=/path` are answered by the manager (`/_signin/<slug>`), which asks oauth2-proxy whether the visitor's cookie is valid. While the manager or oauth2-proxy is down, `optional` lets visitors in as no one and the other two answer 503: no one gets through as someone they're not.
-- With sign-in in its rules, the app gets `/oauth2/` on its own name, so it can link to `/oauth2/start?rd=<page>` to sign in and `/oauth2/sign_out?rd=<page>` to sign out without knowing the domain. `rd` must be a full `https://` address under `SSO_DOMAIN`; in a page, build it from `location.origin`.
+- With sign-in (for the whole app or in its rules), the app gets `/oauth2/` on its own name, so it can link to `/oauth2/start?rd=<page>` to sign in and `/oauth2/sign_out?rd=<page>` to sign out without knowing the domain. `rd` must be a full `https://` address under `SSO_DOMAIN`; in a page, build it from `location.origin`.
 - `from=` uses the client's own address, as Traefik sees it. Port forwards that rewrite the source (source NAT, hairpin NAT) make every client look like the router; reach the gateway from the LAN directly, for instance with split DNS.
 - **Start path** only works for `/` when no rule covers `/`.
 

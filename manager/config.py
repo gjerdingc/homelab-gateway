@@ -241,6 +241,11 @@ class Config:
         return os.path.join(self.sso_log_dir, "oauth2-proxy.log")
 
     @property
+    def sso_pages_dir(self):
+        """oauth2-proxy's own sign-in and error pages (OAUTH2_PROXY_CUSTOM_TEMPLATES_DIR)."""
+        return os.path.join(self.sso_dir, "templates")
+
+    @property
     def sso_cookie_secret_path(self):
         return os.path.join(self.sso_dir, "cookie-secret")
 

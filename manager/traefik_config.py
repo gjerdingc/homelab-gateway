@@ -285,6 +285,17 @@ def render_app(app, ip_lists=None, resolver=DEFAULT_RESOLVER, access_url=None):
         http.setdefault("middlewares", {})[f"{slug}-start"] = {"redirectRegex": {
             "regex": r"^(https?://[^/]+)/?$", "replacement": "${1}" + start_path, "permanent": False}}
 
+    if uses_sign_in(app):
+        # oauth2-proxy's pages on the app's own name: the sign-in page's button (/oauth2/start), and
+        # links an app makes to sign in or out without knowing the domain. Google still returns to
+        # the sign-in host.
+        http["routers"][f"{slug}-oauth2"] = {
+            "rule": f"({router['rule']}) && PathPrefix(`/oauth2/`)", "entryPoints": ["websecure"],
+            "service": f"{SSO_SIGNIN}@file", "priority": OAUTH2_PRIORITY,
+            "middlewares": [*guards, f"{STRIP_IDENTITY}@file",
+                            *(["secure-headers@file"] if app.get("security_headers", True) else [])],
+            "tls": dict(router["tls"])}
+
     if rules:
         _render_rules(app, rules, guards, router, ip_lists, access_url, http)
 
@@ -309,13 +320,6 @@ def _render_rules(app, rules, guards, main, ip_lists, access_url, http):
     def router(rule, middlewares, priority):
         return {"rule": rule, "entryPoints": ["websecure"], "service": slug, "priority": priority,
                 "middlewares": middlewares, "tls": dict(main["tls"])}
-
-    if rules_use_sign_in(app):
-        # The sign-in pages on the app's own name, so the app can link to /oauth2/start and
-        # /oauth2/sign_out without knowing the domain. Google still returns to the sign-in page.
-        r = router(f"({host}) && PathPrefix(`/oauth2/`)", [*guards, f"{STRIP_IDENTITY}@file", *tail], OAUTH2_PRIORITY)
-        r["service"] = f"{SSO_SIGNIN}@file"
-        routers[f"{slug}-oauth2"] = r
 
     for i, rule in enumerate(rules, start=1):
         name = f"{slug}-rule{i}"

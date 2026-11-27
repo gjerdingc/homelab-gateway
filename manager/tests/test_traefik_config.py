@@ -357,3 +357,15 @@ def test_describe_rule():
                              "read_only": True}) == ("Everyone opening any page must be signed in; others are sent "
                                                      "to /games. Read-only: only GET and HEAD.")
     assert tc.describe_rule({"paths": ["/x"], "from": [], "access": "deny", "read_only": True}).endswith("(403).")
+
+
+def test_every_sign_in_app_gets_oauth2_on_its_own_name():
+    # The sign-in page's button goes to /oauth2/start on the app's name, so a whole-app sign-in needs it too.
+    app = {**APP, "require_sign_in": True, "allowed_sources": ["10.0.0.20"]}
+    routers = yaml.safe_load(tc.render_app(app))["http"]["routers"]
+    assert routers["grafana-oauth2"] == {
+        "rule": f"({routers['grafana']['rule']}) && PathPrefix(`/oauth2/`)", "entryPoints": ["websecure"],
+        "service": "sso-signin@file", "priority": tc.OAUTH2_PRIORITY,
+        "middlewares": ["lan-only@file", "grafana-sources@file", "strip-identity@file", "secure-headers@file"],
+        "tls": {}}
+    assert "grafana-oauth2" not in yaml.safe_load(tc.render_app(APP))["http"]["routers"]

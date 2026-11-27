@@ -104,6 +104,14 @@ services:
     pull_policy: ${TM_PULL_POLICY:-always}
     container_name: traefik-manager
     restart: unless-stopped
+    # As in the image, but checked every 2 s while starting, so oauth2-proxy (which waits for this)
+    # starts within seconds.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      start_interval: 2s
     ports:
       # Break-glass access that does not go through Traefik: http://<host-ip>:8090
       # Not protected by the LAN-only middleware. Set BREAK_GLASS_PORT=<lan-ip>:8090 to listen
@@ -296,7 +304,11 @@ services:
       # Its log; the manager hands this folder to oauth2-proxy's user on start
       - ${TM_ROOT:-/opt/traefik}/oauth2-proxy/logs:/var/log/oauth2-proxy
     networks: [proxy]
-    depends_on: [traefik-manager]
+    # Healthy means the manager has started, after copying the sign-in pages to templates/, which
+    # oauth2-proxy reads only when it starts. Otherwise it would show its own pages until a restart.
+    depends_on:
+      traefik-manager:
+        condition: service_healthy
 
 networks:
   proxy:

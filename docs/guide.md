@@ -181,11 +181,16 @@ With plain Docker: `docker compose -f docker-compose.yml -f docker-compose.build
 
 ## Login
 
-By default anyone who can reach the manager (the LAN, narrowed by **Manager access**) can use it. To require a login, open **Settings**, enter a username and password and choose **Turn on login**. Your browser then asks for it.
+By default anyone who can reach the manager (the LAN, narrowed by **Manager access**) can use it, and a banner says so. To require a login, open **Settings**, enter a username and password and choose **Turn on login**. The browser you did it from stays signed in; others get the manager's sign-in page.
 
-- It covers the GUI, the Traefik dashboard and the break-glass port 8090: Traefik checks it on the manager's route, and the manager checks it itself on every request, which is what protects the port that bypasses Traefik.
+- One local account, the same on the route through Traefik and on the break-glass port 8090. It is a local account on purpose: the manager is what sets up Google sign-in and Traefik, so its own login must still work when those are broken.
+- The manager checks it itself on every request, which is what protects the port that bypasses Traefik. The Traefik dashboard asks the manager (`/_login-check`, a ForwardAuth); signed out, it sends you to the sign-in page, which brings you back to the dashboard.
+- A sign-in lasts until 12 hours without use, and at most 7 days. **Sign out** is in the menu. Changing the password signs every other browser out.
+- After 5 wrong passwords from one address, that address must wait 15 minutes. Failed sign-ins are in the **Log**.
+- The session cookie is `Secure` through Traefik (HTTPS); on port 8090, which is plain HTTP, it can't be, so use that port only on a network you trust.
+- Scripts can still send the login as HTTP Basic (`curl -u me`); browsers are never asked for it in a popup.
 - Only a bcrypt hash is stored, in `/opt/traefik/manager/auth.yml`.
-- The root certificate (`/status/root_ca.crt`) and the health check stay open, so anyone allowed to reach the manager can still set up a device.
+- The root certificate (`/status/root_ca.crt`), the icon and the health check stay open, so anyone allowed to reach the manager can still set up a device.
 - **Change** the username or password on the same page, or **Turn off login** there.
 - **Forgot the password?** Set `RESET_LOGIN=true` in the stack and redeploy: the manager starts without a login. Set a new one, then remove the variable.
 - `BASIC_AUTH_USERS` in the stack takes precedence; the Settings page then only shows it.

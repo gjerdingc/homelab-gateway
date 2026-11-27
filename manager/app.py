@@ -6,9 +6,11 @@ import logging
 import os
 import secrets
 import sys
+import time
 from urllib.parse import quote
 
 import requests
+from flask.sessions import SecureCookieSessionInterface
 from flask import (Flask, Response, abort, flash, redirect, render_template, request, send_file,
                    session, url_for)
 
@@ -34,6 +36,19 @@ networks:
   proxy:
     external: true
 """
+
+
+# A session ends after this long without a request, and in any case this long after signing in.
+SESSION_IDLE_SECONDS = 12 * 3600
+SESSION_MAX_SECONDS = 7 * 24 * 3600
+
+
+class _SessionInterface(SecureCookieSessionInterface):
+    """Flask's signed-cookie session, marked Secure when the request came over HTTPS (through
+    Traefik), so it also works on the plain-HTTP break-glass port."""
+
+    def get_cookie_secure(self, app):
+        return request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
 
 
 def _secret_key(data_dir):
@@ -96,7 +111,9 @@ def create_app(env=None, start_background=True):
 
     app = Flask(__name__)
     app.secret_key = _secret_key(config.data_dir)
-    app.config.update(MAX_CONTENT_LENGTH=256 * 1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+    app.session_interface = _SessionInterface()
+    app.config.update(MAX_CONTENT_LENGTH=256 * 1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      PERMANENT_SESSION_LIFETIME=datetime.timedelta(seconds=SESSION_IDLE_SECONDS))
     app.extensions["tm"] = {"config": config, "manager": manager, "renewer": renewer, "stats": stats,
                            "traffic": traffic}
     app.jinja_env.filters["days_left"] = days_left
@@ -105,19 +122,111 @@ def create_app(env=None, start_background=True):
     app.jinja_env.globals["describe_rule"] = tc.describe_rule
 
     # ---- login ---------------------------------------------------------------
+    # The manager checks the login itself, on every request: the route through Traefik and the
+    # break-glass port, which bypasses Traefik, alike. A browser signs in on /login and gets a session
+    # cookie; scripts may send the login as HTTP Basic instead (never asked for in a popup).
 
-    # Checked here as well as by Traefik, because the break-glass port does not go through Traefik.
-    open_paths = {"/healthz", tc.ROOT_CA_DOWNLOAD, *tc.ICON_PATHS}
+    open_paths = {"/healthz", "/login", tc.ROOT_CA_DOWNLOAD, *tc.ICON_PATHS}
+    throttle = auth.Throttle()  # per client
+    everyone = auth.Throttle(max_failures=50)  # all clients together: a client that changes its address
+
+    def client_key():
+        # Through Traefik, X-Forwarded-For is Traefik's own (it drops what clients send). On the
+        # break-glass port a client can send any, so the socket address is part of the key too.
+        first = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        return f"{request.remote_addr}|{first}"
+
+    def signed_in_user():
+        """Who is signed in on this request: a name, "" when no login is set, or None."""
+        if not login.enabled:
+            return ""
+        user = session.get("user")
+        if (user and user in login.usernames() and session.get("login") == login.version()
+                and time.time() - session.get("since", 0) < SESSION_MAX_SECONDS):
+            return user
+        authorization = request.headers.get("Authorization")
+        if authorization and not throttle.wait(client_key()):
+            if login.check(authorization):
+                return "script"  # HTTP Basic, checked on each request
+            throttle.failed(client_key())
+        return None
+
+    def safe_next(target):
+        """A path on this site to go to after signing in; never another site."""
+        if not target or not target.startswith("/") or target.startswith("//") or "\\" in target:
+            return url_for("home")
+        return target
+
+    def start_session(user):
+        session.clear()
+        session.permanent = True
+        session.update(user=user, login=login.version(), since=time.time())
 
     @app.before_request
     def require_login():
-        if (request.path in open_paths or request.path.startswith((tc.ACCESS_PATH + "/", tc.SIGNIN_PATH + "/"))
-                or login.check(request.headers.get("Authorization"))):
+        if (request.path in open_paths or request.path.startswith(
+                (tc.ACCESS_PATH + "/", tc.SIGNIN_PATH + "/", tc.LOGIN_CHECK_PATH))
+                or signed_in_user() is not None):
             return None
-        resp = Response("Log in to use Traefik Manager. Forgot the password? See Login in docs/guide.md.\n",
+        if request.method == "GET" and "text/html" in request.headers.get("Accept", ""):
+            target = request.full_path if request.query_string else request.path
+            return redirect(url_for("login_page", next=target))
+        return Response("Sign in to use Traefik Manager. Forgot the password? See Login in docs/guide.md.\n",
                         401, mimetype="text/plain")
-        resp.headers["WWW-Authenticate"] = f'Basic realm="{auth.REALM}", charset="UTF-8"'
+
+    @app.route(tc.LOGIN_CHECK_PATH, methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    def login_check():
+        """forwardAuth for the Traefik dashboard (on the manager's name): 200 when signed in to the
+        manager, otherwise a redirect to the sign-in page (which returns to the dashboard), or 401
+        for its API calls."""
+        if signed_in_user() is not None:
+            return Response(status=200)
+        uri = request.headers.get("X-Forwarded-Uri", "/dashboard/")
+        if request.headers.get("X-Forwarded-Method", "GET") == "GET" and not uri.startswith("/api"):
+            # A full address: Traefik would read a relative one against the manager's own address.
+            host = config.manager_fqdn or request.headers.get("X-Forwarded-Host", "")
+            return redirect(f"https://{host}" + url_for("login_page", next=safe_next(uri)), code=302)
+        return Response("Sign in to Traefik Manager first\n", 401, mimetype="text/plain")
+
+    def login_response(html, status=200):
+        resp = Response(html, status, mimetype="text/html")
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "same-origin"
         return resp
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login_page():
+        target = safe_next(request.values.get("next"))
+        if not login.enabled or (request.method == "GET" and signed_in_user()):
+            return redirect(target)
+        page = dict(next=target, username="", error=None, host=request.host.split(":")[0])
+        if request.method == "GET":
+            return login_response(render_template("login.html", **page))
+        key = client_key()
+        username = (request.form.get("username") or "").strip()
+        page["username"] = username
+        wait = throttle.wait(key)
+        if wait:
+            page["error"] = f"Too many wrong passwords. Try again in {max(1, round(wait / 60))} minute(s)."
+            return login_response(render_template("login.html", **page), 429)
+        if everyone.wait("all"):
+            time.sleep(2)  # many failures from many addresses: slow every attempt down
+        user = login.verify(username, request.form.get("password") or "")
+        if not user:
+            throttle.failed(key)
+            everyone.failed("all")
+            actions.write(f"failed sign-in to the manager as {username[:40]!r} from {request.headers.get('X-Forwarded-For') or request.remote_addr}", "WARN")
+            page["error"] = "Wrong username or password."
+            return login_response(render_template("login.html", **page), 401)
+        throttle.succeeded(key)
+        start_session(user)
+        return redirect(target, code=303)
+
+    @app.post("/logout")
+    def logout():
+        session.clear()
+        flash("You have signed out.", "success")
+        return redirect(url_for("login_page"), code=303)
 
     # ---- CSRF ----------------------------------------------------------------
 
@@ -171,6 +280,9 @@ def create_app(env=None, start_background=True):
             elif wc["state"] == "missing" and manager.wildcard_apps():
                 banners.append(("warn", f"The wildcard certificate for {wc['domain']} is not issued yet, so apps "
                                         "that use it get the manager's certificate. See the log of gateway-acme (here, or on the stack that pushes it)."))
+        if not login.enabled:
+            banners.append(("warn", "There is no login: anyone who can reach the manager can change it, also on "
+                                    "the break-glass port. Turn on the login under Settings."))
         if config.reset_login:
             banners.append(("warn", "RESET_LOGIN is set, so any login set on Settings is removed at every start. "
                                     "Remove the variable from the stack once you have set a new login."))
@@ -178,7 +290,8 @@ def create_app(env=None, start_background=True):
                 "dashboard_enabled": config.dashboard_enabled, "letsencrypt_enabled": config.letsencrypt_enabled,
                 "wildcard_enabled": config.wildcard_enabled, "wildcard_domain": config.wildcard_domain,
                 "sso_enabled": config.sso_enabled, "sso_domain": config.sso_domain,
-                "icon_colour": manager.icon_colour()}
+                "icon_colour": manager.icon_colour(),
+                "signed_in_as": session.get("user") if login.enabled and session.get("login") == login.version() else None}
 
     # ---- helpers -------------------------------------------------------------
 
@@ -581,13 +694,13 @@ def create_app(env=None, start_background=True):
             return render_settings(exc.args[0], username=request.form.get("username", ""), status=400)
         was_on = login.enabled
         try:
-            result = manager.set_login([f"{username}:{auth.hash_password(password)}"],
-                                       "changed the login for" if was_on else "turned on the login for")
+            manager.set_login([f"{username}:{auth.hash_password(password)}"],
+                              "changed the login for" if was_on else "turned on the login for")
         except ApplyError as exc:
             flash(str(exc), "error")
             return redirect(url_for("settings"))
-        flash(f"Login {'changed' if was_on else 'turned on'} for {username}. Your browser asks for it now."
-              + ("" if result is None or result.verified else f" Traefik: {result.state} ({result.detail})"),
+        start_session(username)  # this browser stays signed in, as the new login
+        flash(f"Login {'changed' if was_on else 'turned on'} for {username}. Other browsers must sign in again.",
               "success")
         return redirect(url_for("settings"))
 

@@ -83,26 +83,22 @@ def test_core_routes_and_middlewares():
     assert data["tls"]["stores"]["default"]["defaultCertificate"] == {"certFile": "/c.crt", "keyFile": "/c.key"}
 
 
-def test_core_dashboard_disabled_and_basic_auth():
+def test_core_dashboard_disabled_and_no_login_in_traefik():
     data = yaml.safe_load(tc.render_core(core_config(DASHBOARD_ENABLED="false", BASIC_AUTH_USERS="me:$apr1$x$y"), None))
     assert "traefik-dashboard" not in data["http"]["routers"]
-    assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "basic-auth@file",
-                                                                         "strip-identity@file"]
-    assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == ["me:$apr1$x$y"]
-    assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["realm"] == "Traefik Manager"
-    public = data["http"]["routers"]["traefik-manager-root-ca"]
-    assert public["middlewares"] == ["lan-only@file", "strip-identity@file"] and "/status/root_ca.crt" in public["rule"]
-    assert "Path(`/favicon.svg`)" in public["rule"] and "Path(`/apple-touch-icon.png`)" in public["rule"]
-
-
-def test_core_login_from_settings_overrides_nothing_when_unset():
-    stored = ["me:$2y$10$abc"]
-    data = yaml.safe_load(tc.render_core(core_config(), None, auth_users=stored))
-    assert data["http"]["middlewares"]["basic-auth"]["basicAuth"]["users"] == stored
-    data = yaml.safe_load(tc.render_core(core_config(), None, auth_users=[]))
-    assert "basic-auth" not in data["http"]["middlewares"]
-    assert "traefik-manager-root-ca" not in data["http"]["routers"]
+    # The manager checks its login itself, so its route has none in Traefik, and the login is not in the file.
+    assert data["http"]["routers"]["traefik-manager"]["middlewares"] == ["lan-only@file", "strip-identity@file"]
+    assert "basic-auth" not in data["http"]["middlewares"] and "traefik-manager-root-ca" not in data["http"]["routers"]
+    assert "$apr1$" not in tc.render_core(core_config(BASIC_AUTH_USERS="me:$apr1$x$y"), None)
     assert "stores" not in data["tls"]
+
+
+def test_core_dashboard_asks_the_manager_for_the_login():
+    http = yaml.safe_load(tc.render_core(core_config(), None))["http"]
+    assert http["routers"]["traefik-dashboard"]["middlewares"] == ["lan-only@file", "strip-identity@file",
+                                                                   "manager-login@file"]
+    assert http["middlewares"]["manager-login"] == {
+        "forwardAuth": {"address": "http://traefik-manager:8000/_login-check"}}
 
 
 def test_revision_marker_tracks_content():

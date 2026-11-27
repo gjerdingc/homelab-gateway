@@ -265,7 +265,7 @@ Validate all of these at startup. On bad config, log a clear error and show it o
 | `RENEW_CHECK_HOURS` | no | `12` | Renewal loop interval |
 | `KEY_TYPE` | no | `rsa-2048` | `rsa-2048` (matches the existing RSA PKI) or `ec-p256` |
 | `TRAEFIK_API_URL` | no | `http://traefik:8080` | |
-| `BASIC_AUTH_USERS` | no | – | Optional htpasswd-style string. If set, applied to the manager and dashboard routers |
+| `BASIC_AUTH_USERS` | no | – | Optional htpasswd-style string. If set, it is the GUI login (instead of the one set on Settings), checked by the manager on its sign-in page |
 | `LETSENCRYPT_ENABLED` | no | `false` | Offer Let's Encrypt as an app's certificate source. Traefik needs `CF_DNS_API_TOKEN` (stack env, Traefik only) |
 | `LETSENCRYPT_RESOLVER` | no | `letsencrypt` | Name of Traefik's ACME cert resolver, as configured in `docker-compose.yml` |
 | `COMPOSE_PROFILES` | no | – | With `sso` in it, compose starts oauth2-proxy and the manager turns sign-in on (unless `SSO_ENABLED` says otherwise) |
@@ -377,10 +377,10 @@ tls:
 `_core.yml` (regenerated at every manager start and whenever settings change):
 - `tls.options.default`: `minVersion: VersionTLS12`, `sniStrict: false`.
 - `tls.stores.default.defaultCertificate`: the manager's own cert, so unknown SNIs get an internal-CA cert rather than Traefik's self-signed one.
-- Middlewares: `lan-only` (`ipAllowList.sourceRange` = `LAN_CIDRS`), `secure-headers` (HSTS max-age 1 year without preload, `contentTypeNosniff`, `frameDeny`, `referrerPolicy: same-origin`), and `basic-auth` if `BASIC_AUTH_USERS` is set.
+- Middlewares: `lan-only` (`ipAllowList.sourceRange` = `LAN_CIDRS`), `secure-headers` (HSTS max-age 1 year without preload, `contentTypeNosniff`, `frameDeny`, `referrerPolicy: same-origin`), and `manager-login` (forwardAuth to the manager's `/_login-check`, for the dashboard).
 - Manager and dashboard share **one FQDN** (`traefik.gjecorp.net`), split by path:
-  - Router `traefik-dashboard`: `Host(`MANAGER_FQDN`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))` → `api@internal`, explicit high `priority` (e.g. 100), with `lan-only` (+ `basic-auth`). Only when `DASHBOARD_ENABLED`.
-  - Router `traefik-manager`: `Host(`MANAGER_FQDN`)` → `http://traefik-manager:8000`, priority 10, with `lan-only` (+ `basic-auth`).
+  - Router `traefik-dashboard`: `Host(`MANAGER_FQDN`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))` → `api@internal`, explicit high `priority` (e.g. 100), with `lan-only` and `manager-login`. Only when `DASHBOARD_ENABLED`.
+  - Router `traefik-manager`: `Host(`MANAGER_FQDN`)` → `http://traefik-manager:8000`, priority 10, with `lan-only`; the manager checks its login itself.
   - Therefore the manager must **not** use any URL under `/api` or `/dashboard`. Use e.g. `/apps`, `/status`, `/log`, `/static`. The GUI links to `/dashboard/` from the nav bar.
 
 **Let's Encrypt apps** (`cert_source: letsencrypt`): the router gets `tls: {certResolver: <LETSENCRYPT_RESOLVER>}` and the file has no `tls.certificates`. Traefik obtains, stores (`acme.json`) and renews the cert; the manager issues nothing, skips these apps when renewing, and shows the cert Traefik serves (the "Certificate" check). The end-to-end check verifies them against the public roots instead of the internal root.
@@ -488,7 +488,7 @@ What's knowingly accepted in phase 1:
 
 Planned hardening steps, in order of value:
 1. **Create a dedicated "issuing" sub-CA with name constraints** (e.g. only `*.gjecorp.net`), signed by the current intermediate, and give *only that* to the manager. A compromise then can't mint certs for other domains. (The manager already honors name constraints, §8.2.)
-2. Enable `BASIC_AUTH_USERS`, or put SSO in front (e.g. Authelia/Authentik via forwardAuth).
+2. Turn on the login under Settings (or set `BASIC_AUTH_USERS`), or put SSO in front (e.g. Authelia/Authentik via forwardAuth).
 3. Move signing out of the manager: run **step-ca** with the issuing CA and have the manager request certs over its API, or switch Traefik to ACME against step-ca (§11). The key then lives in one hardened service.
 4. Shorter cert lifetimes (e.g. 30–90 days) now that renewal is automatic.
 5. Disable `api.insecure`. Have the manager reach the API through an authenticated internal router.

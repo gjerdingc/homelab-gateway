@@ -1,8 +1,9 @@
 """The GUI login: one user, set on the Settings page or with BASIC_AUTH_USERS.
 
-The same htpasswd entries go to two places: Traefik's basicAuth middleware on the manager's route
-(which also covers the dashboard), and the check in the manager itself, which is what protects the
-break-glass port that does not go through Traefik."""
+The manager checks it itself, on the route through Traefik and on the break-glass port alike: a
+sign-in page sets a session cookie. The Traefik dashboard asks the manager (forwardAuth) whether that
+cookie is signed in. Scripts may still send the login as HTTP Basic, but the browser is never asked
+for it in a popup."""
 
 import base64
 import hashlib
@@ -17,7 +18,6 @@ import yaml
 
 import store as st
 
-REALM = "Traefik Manager"
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
 MIN_PASSWORD = 8
 CACHE_SECONDS = 300  # bcrypt is slow on purpose; don't pay for it on every request
@@ -170,6 +170,18 @@ class Login:
         with self._lock:
             self._cache.clear()
 
+    def version(self):
+        """Changes whenever the login does, so sessions from before a change are signed out."""
+        return hashlib.sha256("\n".join(self.users()).encode()).hexdigest()[:16]
+
+    def verify(self, username, password):
+        """The username when the pair is a valid login, else None."""
+        for entry in self.users():
+            user, _, secret = entry.partition(":")
+            if hmac.compare_digest(user.encode(), (username or "").encode()) and verify_password(secret, password or ""):
+                return user
+        return None
+
     def check(self, authorization):
         """True when the Authorization header holds a valid login (or no login is required)."""
         users = self.users()
@@ -194,3 +206,42 @@ class Login:
                     self._cache[key] = now + CACHE_SECONDS
                 return True
         return False
+
+
+class Throttle:
+    """Slows down password guessing: after MAX_FAILURES wrong logins from one client within
+    WINDOW seconds, that client must wait until WINDOW has passed since its last failure."""
+
+    def __init__(self, max_failures=5, window=15 * 60):
+        self.MAX_FAILURES, self.WINDOW = max_failures, window
+        self._failures = {}  # client -> times of recent failures
+        self._lock = threading.Lock()
+
+    def _recent(self, client, now):
+        times = [t for t in self._failures.get(client, []) if t > now - self.WINDOW]
+        if times:
+            self._failures[client] = times
+        else:
+            self._failures.pop(client, None)
+        return times
+
+    def wait(self, client):
+        """Seconds the client must wait before trying again; 0 when it may try now."""
+        now = time.monotonic()
+        with self._lock:
+            times = self._recent(client, now)
+            if len(times) < self.MAX_FAILURES:
+                return 0
+            return max(0, int(times[-1] + self.WINDOW - now) + 1)
+
+    def failed(self, client):
+        now = time.monotonic()
+        with self._lock:
+            self._recent(client, now)
+            self._failures.setdefault(client, []).append(now)
+            if len(self._failures) > 10000:  # don't grow without bound
+                self._failures = {c: t for c, t in self._failures.items() if t[-1] > now - self.WINDOW}
+
+    def succeeded(self, client):
+        with self._lock:
+            self._failures.pop(client, None)

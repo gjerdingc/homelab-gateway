@@ -13,7 +13,7 @@
   <dl class="kv">
     <dt>Status</dt><dd>{% if login.enabled %}<span class="badge badge-ok">on</span>Required for <span class="mono">{{ login.usernames() | join(', ') }}</span>{% if login.from_env %}, set with <span class="mono">BASIC_AUTH_USERS</span>{% endif %}{% else %}<span class="badge badge-muted">off</span>Anyone who can reach the manager can use it{% endif %}</dd>
   </dl>
-  <p class="help">The login protects this GUI, the Traefik dashboard and the break-glass port. Your browser asks for it once per session. Without it, the manager is only limited to <span class="mono">LAN_CIDRS</span> (and the allowed sources under <a href="{{ url_for('manager_access') }}">Manager access</a>). The root certificate can still be downloaded without logging in, so anyone can set up a device.</p>
+  <p class="help">The login protects this GUI, the Traefik dashboard and the break-glass port, with a sign-in page. A sign-in lasts until 12 hours without use, and at most 7 days. Without it, the manager is only limited to <span class="mono">LAN_CIDRS</span> (and the allowed sources under <a href="{{ url_for('manager_access') }}">Manager access</a>). The root certificate can still be downloaded without logging in, so anyone can set up a device.</p>
 
   {% if login.from_env %}
   <p class="help">To change it, edit <span class="mono">BASIC_AUTH_USERS</span> in the stack and redeploy. Remove the variable to manage the login here instead.</p>
@@ -38,7 +38,7 @@
     <div class="actions">
       <button class="btn btn-primary" type="submit">{% if login.enabled %}Change login{% else %}Turn on login{% endif %}</button>
     </div>
-    <p class="help">After saving, your browser asks for the new login. Forgot it? Set <span class="mono">RESET_LOGIN=true</span> in the stack and redeploy: the manager starts without a login. Then remove the variable again.</p>
+    <p class="help">After saving, this browser stays signed in; others must sign in again. Forgot it? Set <span class="mono">RESET_LOGIN=true</span> in the stack and redeploy: the manager starts without a login. Then remove the variable again.</p>
   </form>
   {% if login.enabled %}
   <details class="danger-zone">

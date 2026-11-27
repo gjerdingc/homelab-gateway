@@ -350,18 +350,19 @@ def _render_rules(app, rules, guards, main, ip_lists, access_url, http):
 
 
 ROOT_CA_DOWNLOAD = "/status/root_ca.crt"
+# forwardAuth for the Traefik dashboard: is the browser signed in to the manager?
+LOGIN_CHECK_PATH = "/_login-check"
+LOGIN_MIDDLEWARE = "manager-login"
 # The manager's icon, fetched by browsers and the family homepage without the login.
 ICON_PATHS = ("/favicon.svg", "/apple-touch-icon.png")
 
 
-def render_core(config, manager_cert, sources=None, auth_users=None, wildcard=None):
+def render_core(config, manager_cert, sources=None, wildcard=None):
     """_core.yml: TLS defaults, shared middlewares and the manager/dashboard routers.
 
     sources, when set, limits the manager and dashboard further, on top of lan-only.
-    auth_users: htpasswd entries for the GUI login; None means BASIC_AUTH_USERS.
     wildcard: the stack's wildcard certificate (cert_path, key_path, fingerprint), once it is there and
     checked. Traefik serves it for every name it covers that has no certificate of its own."""
-    auth_users = list(config.basic_auth_users if auth_users is None else auth_users)
     middlewares = {
         "lan-only": {"ipAllowList": {"sourceRange": list(config.lan_cidrs)}},
         "secure-headers": {"headers": {
@@ -383,12 +384,10 @@ def render_core(config, manager_cert, sources=None, auth_users=None, wildcard=No
     if sources:
         middlewares["manager-sources"] = {"ipAllowList": {"sourceRange": list(sources)}}
         guards.append("manager-sources")
-    open_guards = [f"{g}@file" for g in guards] + [f"{STRIP_IDENTITY}@file"]
-    if auth_users:
-        # Same realm as the manager's own check, so the browser uses one login for both.
-        middlewares["basic-auth"] = {"basicAuth": {"users": auth_users, "realm": "Traefik Manager"}}
-        guards.append("basic-auth")
     guards = [f"{g}@file" for g in guards] + [f"{STRIP_IDENTITY}@file"]
+    # The manager checks its login itself (it must, for the break-glass port). The dashboard is
+    # Traefik's own, so Traefik asks the manager first; signed out, the browser goes to its sign-in page.
+    middlewares[LOGIN_MIDDLEWARE] = {"forwardAuth": {"address": f"{config.manager_backend.rstrip('/')}{LOGIN_CHECK_PATH}"}}
 
     host = f"Host(`{config.manager_fqdn}`)"
     routers = {}
@@ -398,7 +397,7 @@ def render_core(config, manager_cert, sources=None, auth_users=None, wildcard=No
             "entryPoints": ["websecure"],
             "service": "api@internal",
             "priority": 100,
-            "middlewares": list(guards),
+            "middlewares": [*guards, f"{LOGIN_MIDDLEWARE}@file"],
             "tls": {},
         }
     routers["traefik-manager"] = {
@@ -409,19 +408,6 @@ def render_core(config, manager_cert, sources=None, auth_users=None, wildcard=No
         "middlewares": list(guards),
         "tls": {},
     }
-    if auth_users:
-        # The root certificate and the icon are public, so anyone allowed to reach the manager can
-        # fetch them without the login (to set up a device; for the tab and the family homepage).
-        public = " || ".join(f"Path(`{p}`)" for p in (ROOT_CA_DOWNLOAD, *ICON_PATHS))
-        routers["traefik-manager-root-ca"] = {
-            "rule": f"{host} && ({public})",
-            "entryPoints": ["websecure"],
-            "service": "traefik-manager",
-            "priority": 20,
-            "middlewares": open_guards,
-            "tls": {},
-        }
-
     services = {"traefik-manager": {"loadBalancer": {"servers": [{"url": config.manager_backend}]}}}
     if config.sso_enabled and config.sso_auth_host:
         # Not LAN-only: apps open to any client need their visitors to reach the sign-in too.

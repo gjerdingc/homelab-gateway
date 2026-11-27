@@ -46,6 +46,12 @@
       <a href="{{ url_for('log_page') }}" {% if ep == 'log_page' %}class="active"{% endif %}>Log</a>
       <a href="{{ url_for('settings') }}" {% if ep == 'settings' %}class="active"{% endif %}>Settings</a>
       {% if dashboard_enabled and manager_fqdn %}<a href="https://{{ manager_fqdn }}/dashboard/">Dashboard</a>{% endif %}
+      {% if signed_in_as %}
+      <form method="post" action="{{ url_for('logout') }}" class="signout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" title="Signed in as {{ signed_in_as }}">Sign out</button>
+      </form>
+      {% endif %}
       <div class="theme-menu">
         <button type="button" class="theme-toggle" id="theme-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="theme-options" aria-label="Choose theme" title="Choose theme">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/></g><path fill="currentColor" d="M12 3.5a8.5 8.5 0 0 1 0 17z"/></svg>

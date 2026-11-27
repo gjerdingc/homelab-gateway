@@ -37,6 +37,16 @@ def free_port():
 def backend(body):
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path.startswith("/_login-check"):
+                # Stands in for the manager's check: signed in with the cookie "session=ok".
+                ok = "session=ok" in (self.headers.get("Cookie") or "")
+                self.send_response(200 if ok else 302)
+                if not ok:
+                    self.send_header("Location", f"https://{self.headers.get('X-Forwarded-Host')}/login?next="
+                                     + self.headers.get("X-Forwarded-Uri", ""))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             payload = (f"{body} host={self.headers.get('Host')} "
                        f"user={self.headers.get('X-Auth-Request-Email')} "
                        f"auth={'yes' if self.headers.get('Authorization') else 'no'}").encode()
@@ -105,6 +115,7 @@ class Stack:
                 while chunk := tls.recv(4096):
                     data += chunk
         head, _, body = data.partition(b"\r\n\r\n")
+        self.last_head = head.decode(errors="replace")
         return int(head.split()[1]), body.decode(errors="replace"), serial
 
     def until(self, fn, timeout=15):
@@ -142,8 +153,9 @@ def test_full_lifecycle_against_real_traefik(stack):
     # Manager and dashboard share one FQDN, split by path. Cert chains to the root CA.
     status, body, serial = stack.get("traefik.gjecorp.net")
     assert (status, serial) == (200, mgr["cert"]["serial"]) and "manager-backend" in body
-    assert stack.get("traefik.gjecorp.net", "/api/version")[0] == 200
-    assert stack.get("traefik.gjecorp.net", "/dashboard/")[0] == 200
+    assert stack.get("traefik.gjecorp.net", "/api/version")[0] == 302  # signed out: to the sign-in page
+    assert stack.get("traefik.gjecorp.net", "/api/version", headers={"Cookie": "session=ok"})[0] == 200
+    assert stack.get("traefik.gjecorp.net", "/dashboard/", headers={"Cookie": "session=ok"})[0] == 200
 
     # Add an app: reachable over HTTPS with the new cert, Host header passed through.
     backend_url = f"http://127.0.0.1:{stack.app_backend.server_port}"
@@ -422,32 +434,21 @@ def test_sign_in_against_real_traefik(tmp_path, pki_session):
         auth.shutdown()
 
 
-def test_login_against_real_traefik(stack):
-    """Traefik accepts the $2y$ hash from the Settings page, and the root certificate stays open."""
-    import base64
-
-    import auth
-    login = auth.Login(stack.env["TM_DATA_DIR"])
+def test_dashboard_asks_the_manager_for_the_login(stack):
+    """Traefik sends the dashboard through the manager's /_login-check; signed out, the browser goes
+    to the sign-in page. The manager's own pages have no login in Traefik (the manager checks it)."""
     m = stack.manager
-    m.login = login
     m.startup()
     assert m.startup_error is None
     host = stack.env["MANAGER_FQDN"]
-    assert stack.get(host)[0] == 200
-
-    result = m.set_login(["me:" + auth.hash_password("correct horse")], "turned on the login for")
-    assert result.verified, result.detail
-    good = {"Authorization": "Basic " + base64.b64encode(b"me:correct horse").decode()}
-    bad = {"Authorization": "Basic " + base64.b64encode(b"me:wrong").decode()}
-    stack.until(lambda: stack.get(host)[0] == 401)
-    assert stack.get(host, headers=bad)[0] == 401
-    status, body, _ = stack.get(host, headers=good)
-    # Traefik passes the login on, so the manager's own check (needed for port 8090) lets it in too.
-    assert status == 200 and "auth=yes" in body
-    assert stack.get(host, "/status/root_ca.crt")[0] == 200  # reaches the backend without the login
-
-    m.set_login([], "turned off the login for")
-    stack.until(lambda: stack.get(host)[0] == 200)
+    stack.until(lambda: stack.get(host, "/dashboard/")[0] == 302)
+    stack.get(host, "/dashboard/")
+    # Traefik passes the redirect on as it is, so the manager must send a full address (a relative
+    # one would be read against the manager's own address, which browsers can't reach).
+    assert f"\r\nLocation: https://{host}/login?next=/dashboard/\r\n" in stack.last_head + "\r\n"
+    assert stack.get(host, "/dashboard/", headers={"Cookie": "session=ok"})[0] == 200
+    status, body, _ = stack.get(host, "/settings")
+    assert status == 200 and "manager-backend" in body
 
 
 def fake_signin_check():

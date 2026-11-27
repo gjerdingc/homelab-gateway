@@ -142,7 +142,7 @@ class Manager:
     def render_for(self, app, lists=None):
         if app.get("reserved"):
             return tc.render_core(self.config, app.get("cert"), tc.effective_sources(app, self.ip_list_map(lists)),
-                                  self.login.users() if self.login else None, self.wildcard_for_traefik())
+                                  self.wildcard_for_traefik())
         return tc.render_app(app, self.ip_list_map(lists), self.config.letsencrypt_resolver, self.config.manager_backend)
 
     def routable(self, app):
@@ -541,24 +541,15 @@ class Manager:
             return self._apply(app, prev, False, "updated access for")
 
     def set_login(self, users, action):
-        """Store the GUI login (users: htpasswd entries, [] to remove it) and rewrite the manager's
-        route so Traefik asks for it too. If Traefik refuses the new route, the old login is put back."""
+        """Store the GUI login (users: htpasswd entries, [] to remove it). The manager checks it on
+        every request, so nothing in Traefik changes."""
         if self.login is None:
             raise ApplyError("Login settings are not available")
         if self.login.from_env:
             raise ApplyError("The login is set with BASIC_AUTH_USERS in the stack; change it there")
         with self.lock:
-            previous = self.login.save(users)
-            try:
-                mgr = self.get(MANAGER_SLUG)
-                if mgr and self.ready:
-                    return self._apply(copy.deepcopy(mgr), mgr, False, action)
-            except BaseException:
-                self.login.restore(previous)
-                raise
-            # No manager route yet (the CA is not loaded): the manager's own check still applies.
-            self.actions.write(f"{action} {MANAGER_SLUG}")
-            return None
+            self.login.save(users)
+        self.actions.write(f"{action} {MANAGER_SLUG}")
 
     def delete_ip_list(self, name):
         with self.lock:
